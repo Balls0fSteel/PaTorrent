@@ -22,8 +22,8 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, GWLP_USERDATA, GetClientRect, GetParent, GetWindowLongPtrW, IDC_ARROW, LoadCursorW,
-    RegisterClassExW, SetWindowLongPtrW, WM_ENABLE, WM_ERASEBKGND, WM_GETFONT, WM_LBUTTONDOWN, WM_LBUTTONUP,
-    WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_USER, WNDCLASSEXW,
+    RegisterClassExW, SetWindowLongPtrW, WM_CAPTURECHANGED, WM_ENABLE, WM_ERASEBKGND, WM_GETFONT,
+    WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_USER, WNDCLASSEXW,
 };
 
 use crate::util::{point_from_lparam, rtl, send, wide};
@@ -40,6 +40,30 @@ struct Grid {
     /// The mode a drag paints and the cell it last painted, while the button is down.
     painting: Option<(Mode, usize)>,
     hover: Option<usize>,
+}
+
+/// `WM_MOUSEMOVE`'s `wParam` bit for the left button held (`MK_LBUTTON`).
+const MK_LBUTTON: WPARAM = 0x0001;
+
+impl Grid {
+    /// The pointer moved over `cell` (`None`: off the cells), the left button `down` or not:
+    /// a drag paints the cells passed over; one whose button was let go elsewhere (its
+    /// `WM_LBUTTONUP` lost) paints no more. Whether the grid needs repainting.
+    fn mouse_move(&mut self, cell: Option<usize>, down: bool) -> bool {
+        if !down {
+            self.painting = None;
+        }
+        let mut dirty = cell != self.hover;
+        self.hover = cell;
+        if let (Some(c), Some((m, from))) = (cell, self.painting) {
+            for i in drag_line(from, c) {
+                dirty |= self.table[i] != m;
+                self.table[i] = m;
+            }
+            self.painting = Some((m, c));
+        }
+        dirty
+    }
 }
 
 /// `0xRRGGBB` as GDI wants it (BGR).
@@ -274,16 +298,7 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
             WM_MOUSEMOVE => {
                 let (x, y) = point_from_lparam(lp);
                 let cell = layout(hwnd).hit(x, y);
-                let mut dirty = cell != g.hover;
-                g.hover = cell;
-                if let (Some(c), Some((m, from))) = (cell, g.painting) {
-                    for i in drag_line(from, c) {
-                        dirty |= g.table[i] != m;
-                        g.table[i] = m;
-                    }
-                    g.painting = Some((m, c));
-                }
-                if dirty {
+                if g.mouse_move(cell, wp & MK_LBUTTON != 0) {
                     InvalidateRect(hwnd, null(), 0);
                 }
                 0
@@ -291,6 +306,11 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
             WM_LBUTTONUP => {
                 g.painting = None;
                 ReleaseCapture();
+                0
+            }
+            // Alt+Tab or a box popping up mid-drag: the button-up will not come here
+            WM_CAPTURECHANGED => {
+                g.painting = None;
                 0
             }
             _ => DefWindowProcW(hwnd, msg, wp, lp),
@@ -315,5 +335,23 @@ mod tests {
         assert_eq!(l.hit(last.right + 2, last.top + 1), None);
         assert_eq!(l.hit(last.left + 1, last.bottom + 2), None);
         assert!(l.legend_y + 2 * l.line_h <= 260);
+    }
+
+    /// A drag paints only while the left button is held: a move without it (the button let go
+    /// after the capture was lost, bug hunt 28) ends the drag and only moves the hover.
+    #[test]
+    fn a_drag_stops_painting_without_the_button() {
+        let mut g = Grid { table: [Mode::Full; CELLS], painting: Some((Mode::Off, 0)), hover: Some(0) };
+        assert!(g.mouse_move(Some(2), true));
+        // the cell the drag started on was painted by the button-down
+        assert_eq!(g.table[..4], [Mode::Full, Mode::Off, Mode::Off, Mode::Full]);
+        assert!(g.mouse_move(Some(5), false));
+        assert_eq!(g.painting, None);
+        assert_eq!(g.hover, Some(5));
+        assert!(g.table[3..].iter().all(|&m| m == Mode::Full), "nothing painted");
+        // the button held again over the cells (no WM_LBUTTONDOWN here) paints nothing either
+        assert!(g.mouse_move(Some(7), true));
+        assert!(g.table[3..].iter().all(|&m| m == Mode::Full));
+        assert!(!g.mouse_move(Some(7), true), "same cell, nothing changed");
     }
 }

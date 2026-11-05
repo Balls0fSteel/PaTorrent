@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_101739_1793870259: Version 1.1.71: the bug hunt's Win32 low findings fixed (26-29)
+
+- **Fixed (26):** a saved window rectangle whose title bar is on no monitor (one was unplugged) is moved, and shrunk where larger, into the nearest monitor's work area (`fit_rect`).
+- **Fixed (27):** Search Sources Edit and Remove find their source again by its key after the modal box, so a Web UI change meanwhile no longer edits or deletes the wrong row; a source that has gone is left alone.
+- **Fixed (28):** the scheduler grid ends a drag on `WM_CAPTURECHANGED` and on a mouse move without the left button.
+- **Fixed (29):** Preferences trims the download folder like the other folder fields.
+- Each with a unit test; clippy and `cargo test -p patorrent` pass. `search::tests::the_helper_buttons_follow_the_install` failed once in the agent's full run and passed on rerun (timing; not touched).
+
 ## 2026-11-05_091957_1793866797: Version 1.1.70: the bug hunt's twelve medium findings fixed
 
 - **Fixed, Win32 and GTK (6):** opening Torrent Properties while a torrent finished, was added, failed or was removed lost that event: the alerts the dialog popped while it waited for the tracker lists were cleared by the next alert pass (`pop_all` empties the Vec it fills), so no balloon or log line, a removed torrent's row stayed all session, a pending Standby never fired. Both `on_alerts` take the shared `properties::take_alerts`, which pops behind the saved alerts.

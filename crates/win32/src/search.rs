@@ -1166,9 +1166,12 @@ unsafe fn sources_command(dlg: HWND, st: &mut Sources<'_>, id: u16) -> bool {
             ID_SRC_EDIT => edit_source(dlg, st),
             ID_SRC_REMOVE => {
                 let Some(row) = selected_source(dlg) else { return true };
-                let name = st.host.sources().get(row).map(Source::label).unwrap_or_default();
+                let Some(key) = st.host.sources().get(row).cloned() else { return true };
+                // The list may be refilled while the question is up (a Web UI change): the
+                // source is found again by its key, not by the row it had.
+                let name = key.label();
                 if dialogs::confirm(dlg, &tr!(AskRemoveSource, name)) || cfg!(test) {
-                    remove_source(dlg, st, row);
+                    remove_source(dlg, st, row, &key);
                 }
             }
             ID_SRC_TEST => test_source(dlg, st),
@@ -1203,27 +1206,42 @@ unsafe fn edit_source(dlg: HWND, st: &mut Sources<'_>) {
         let Some(form) = source_dialog(dlg, tr!(SearchEditSource), SourceForm::new(Some(&s))) else {
             return;
         };
-        store_edit(dlg, st, row, &form);
+        store_edit(dlg, st, row, &s, &form);
     }
 }
 
-/// Stores the edit dialog's `form` into source `row`.
-unsafe fn store_edit(dlg: HWND, st: &mut Sources<'_>, row: usize, form: &SourceForm) {
+/// Whether `a` and `b` are the same source, its on/off state aside (the check box may have
+/// been flipped elsewhere meanwhile).
+fn same_source(a: &Source, b: &Source) -> bool {
+    a.name == b.name && a.url == b.url && a.api_key == b.api_key
+}
+
+/// Where source `key`, shown at `row` before a modal box, is now: the list may have been
+/// refilled meanwhile (a Web UI change). `None` when it has gone.
+fn locate_source(sources: &[Source], row: usize, key: &Source) -> Option<usize> {
+    match sources.get(row) {
+        Some(s) if same_source(s, key) => Some(row),
+        _ => sources.iter().position(|s| same_source(s, key)),
+    }
+}
+
+/// Stores the edit dialog's `form` into source `key`, shown at `row` when the dialog opened;
+/// nothing when it has gone meanwhile.
+unsafe fn store_edit(dlg: HWND, st: &mut Sources<'_>, row: usize, key: &Source, form: &SourceForm) {
     unsafe {
         let mut sources = st.host.sources();
-        let Some(s) = sources.get_mut(row) else { return };
-        form.apply(s);
+        let Some(row) = locate_source(&sources, row, key) else { return };
+        form.apply(&mut sources[row]);
         st.host.store_sources(&sources);
         fill_sources(dlg, st, Some(row));
     }
 }
 
-unsafe fn remove_source(dlg: HWND, st: &mut Sources<'_>, row: usize) {
+/// Removes source `key`, shown at `row` when the question was asked; nothing when it has gone.
+unsafe fn remove_source(dlg: HWND, st: &mut Sources<'_>, row: usize, key: &Source) {
     unsafe {
         let mut sources = st.host.sources();
-        if row >= sources.len() {
-            return;
-        }
+        let Some(row) = locate_source(&sources, row, key) else { return };
         sources.remove(row);
         st.host.store_sources(&sources);
         fill_sources(dlg, st, Some(row));
@@ -2017,14 +2035,14 @@ mod tests {
         assert!(form.key.is_empty() && form.has_key);
         form.name = "Renamed".into();
         form.enabled = false;
-        unsafe { store_edit(f.dlg, f.st(), 2, &form) };
+        unsafe { store_edit(f.dlg, f.st(), 2, &off, &form) };
         let s = f.shared.borrow().sources[2].clone();
         assert_eq!((s.name.as_str(), s.url.as_str(), s.api_key.as_str()), ("Renamed", off.url.as_str(), KEY));
         assert!(!s.enabled);
         // a new URL and key
         form.url = "http://127.0.0.1:9696/4/api".into();
         form.key = "new".into();
-        unsafe { store_edit(f.dlg, f.st(), 2, &form) };
+        unsafe { store_edit(f.dlg, f.st(), 2, &s, &form) };
         let s = f.shared.borrow().sources[2].clone();
         assert_eq!((s.url.as_str(), s.api_key.as_str()), ("http://127.0.0.1:9696/4/api", "new"));
 
@@ -2053,10 +2071,44 @@ mod tests {
         assert_eq!(f.list().len(), 3);
         let _ = dialogs::take_told();
 
+        // the list refilled while a modal box was up: Edit and Remove find their source again
+        // by its key, and do nothing when it has gone
+        let key = f.shared.borrow().sources[0].clone();
+        f.shared.borrow_mut().sources.swap(0, 2);
+        unsafe { SendMessageW(f.dlg, WM_SEARCH_SOURCES, 0, 0) };
+        let mut form = SourceForm::new(Some(&key));
+        form.name = "Moved".into();
+        unsafe { store_edit(f.dlg, f.st(), 0, &key, &form) };
+        let names: Vec<String> = f.shared.borrow().sources.iter().map(|s| s.label()).collect();
+        assert_eq!(names, ["New", "Renamed", "Moved"]);
+        unsafe { remove_source(f.dlg, f.st(), 0, &key) };
+        assert_eq!(f.shared.borrow().sources.len(), 3, "the old key is gone: nothing removed");
+        let moved = f.shared.borrow().sources[2].clone();
+        unsafe { remove_source(f.dlg, f.st(), 0, &moved) };
+        let names: Vec<String> = f.shared.borrow().sources.iter().map(|s| s.label()).collect();
+        assert_eq!(names, ["New", "Renamed"]);
+
         // a browser changed them: the list follows
         f.shared.borrow_mut().sources.truncate(1);
         unsafe { SendMessageW(f.dlg, WM_SEARCH_SOURCES, 0, 0) };
         assert_eq!(f.list().len(), 1);
+    }
+
+    /// A source shown at a row before a modal box is found again after the list changed
+    /// (bug hunt 27): at its row, moved, its check box flipped, or gone.
+    #[test]
+    fn a_source_is_located_by_key_not_by_stale_row() {
+        let list = sources();
+        let key = list[1].clone();
+        assert_eq!(locate_source(&list, 1, &key), Some(1));
+        let mut moved = list.clone();
+        moved.swap(0, 1);
+        assert_eq!(locate_source(&moved, 1, &key), Some(0));
+        moved[0].enabled = false;
+        assert_eq!(locate_source(&moved, 1, &key), Some(0), "the check box is not part of the key");
+        moved.remove(0);
+        assert_eq!(locate_source(&moved, 1, &key), None);
+        assert_eq!(locate_source(&[], 0, &key), None);
     }
 
     #[test]

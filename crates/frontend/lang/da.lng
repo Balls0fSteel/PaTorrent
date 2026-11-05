@@ -301,6 +301,7 @@ CannotStartEngine=Kan ikke starte BitTorrent-motoren
 CannotAdd=Kunne ikke tilføje {name}
 CannotOpen=Kunne ikke åbne {path}
 CannotDownload=Kunne ikke hente {url}
+CannotRelocate=Kunne ikke flytte eller omdøbe en fil i {name}
 ErrNotALink=Ikke et link, PaTorrent kan tilføje
 UrlPlaceholder=magnet:?xt=… eller https://…/fil.torrent
 MenuRemoveAndDelete=Fjern &og slet data

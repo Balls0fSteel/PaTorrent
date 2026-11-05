@@ -301,6 +301,7 @@ CannotStartEngine=Δεν είναι δυνατή η εκκίνηση της μη
 CannotAdd=Δεν ήταν δυνατή η προσθήκη του {name}
 CannotOpen=Δεν ήταν δυνατό το άνοιγμα του {path}
 CannotDownload=Δεν ήταν δυνατή η λήψη του {url}
+CannotRelocate=Δεν ήταν δυνατή η μετακίνηση ή η μετονομασία ενός αρχείου του {name}
 ErrNotALink=Δεν είναι σύνδεσμος που μπορεί να προσθέσει το PaTorrent
 UrlPlaceholder=magnet:?xt=… ή https://…/αρχείο.torrent
 MenuRemoveAndDelete=Αφαίρεση &και διαγραφή δεδομένων

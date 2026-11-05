@@ -301,6 +301,7 @@ CannotStartEngine=Tidak dapat memulai mesin BitTorrent
 CannotAdd=Tidak dapat menambahkan {name}
 CannotOpen=Tidak dapat membuka {path}
 CannotDownload=Tidak dapat mengunduh {url}
+CannotRelocate=Tidak dapat memindahkan atau mengganti nama berkas dari {name}
 ErrNotALink=Bukan tautan yang dapat ditambahkan PaTorrent
 UrlPlaceholder=magnet:?xt=… atau https://…/berkas.torrent
 MenuRemoveAndDelete=Hapus &dan hapus data

@@ -301,6 +301,7 @@ CannotStartEngine=Motorul BitTorrent nu poate porni
 CannotAdd={name} nu a putut fi adăugat
 CannotOpen={path} nu a putut fi deschis
 CannotDownload={url} nu a putut fi descărcat
+CannotRelocate=Un fișier din {name} nu a putut fi mutat sau redenumit
 ErrNotALink=Nu este o legătură pe care PaTorrent o poate adăuga
 UrlPlaceholder=magnet:?xt=… sau https://…/fisier.torrent
 MenuRemoveAndDelete=Elimină ș&i șterge datele

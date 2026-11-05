@@ -301,6 +301,7 @@ CannotStartEngine=No es pot iniciar el motor BitTorrent
 CannotAdd=No s'ha pogut afegir {name}
 CannotOpen=No s'ha pogut obrir {path}
 CannotDownload=No s'ha pogut baixar {url}
+CannotRelocate=No s'ha pogut moure ni canviar el nom d'un fitxer de {name}
 ErrNotALink=No és un enllaç que PaTorrent pugui afegir
 UrlPlaceholder=magnet:?xt=… o https://…/fitxer.torrent
 MenuRemoveAndDelete=Elimina &i esborra les dades

@@ -400,6 +400,38 @@ progressbar.pa-done > trough, progressbar.pa-done > trough > progress { min-heig
 .pa-done-text { font-size: smaller; }
 ";
 
+/// The alternate row shading (`ui.alternate_rows`): the odd rows that [`crate::table::stripe`]
+/// marks, a 16th of the text colour over the background as the Win32 lists' window colour at
+/// 15/16. A selected or hovered row keeps the theme's colour.
+const STRIPES: &str = "
+row.pa-alt:not(:selected):not(:hover) { background-color: alpha(currentColor, 0.0625); }
+";
+
+thread_local! {
+    /// [`STRIPES`], on the display while the preference is on.
+    static STRIPES_CSS: gtk::CssProvider = {
+        let css = gtk::CssProvider::new();
+        css.load_from_string(STRIPES);
+        css
+    };
+}
+
+/// Shades every other row of the lists, or stops.
+fn set_alternate_rows(on: bool) {
+    let Some(display) = gtk::gdk::Display::default() else { return };
+    STRIPES_CSS.with(|css| {
+        // removed first, so that a second call does not add it twice
+        gtk::style_context_remove_provider_for_display(&display, css);
+        if on {
+            gtk::style_context_add_provider_for_display(
+                &display,
+                css,
+                gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+            );
+        }
+    });
+}
+
 /// The menu bar and the application-wide actions and shortcuts.
 fn startup(app: &gtk::Application) {
     // GTK takes its direction from gettext's locale, which we do not use: an Arabic, Hebrew
@@ -464,6 +496,10 @@ fn startup(app: &gtk::Application) {
         ("win.find", &["<Control>f"]),
         ("win.preferences", &["<Control>p"]),
         ("win.setup-guide", &["<Control>g"]),
+        // as the Win32 GUI's; Enter for Properties is the torrent list's own (`build`)
+        ("win.start", &["<Control>s"]),
+        ("win.stop", &["<Control>t"]),
+        ("win.pause", &["<Control><Shift>p"]),
         ("app.quit", &["<Control>q"]),
     ] {
         app.set_accels_for_action(action, keys);
@@ -906,6 +942,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         settings::store(&mut prefs, &opts.settings);
     }
     let save_path = opts.gui.download_dir.clone();
+    set_alternate_rows(opts.gui.alternate_rows);
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -1212,6 +1249,21 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             show_properties();
         }
     });
+    // Enter is Properties for every torrent, as on Win32 (the view would activate the row and
+    // open a finished torrent's folder); with Ctrl, Shift or Alt it stays the view's
+    let enter = gtk::EventControllerKey::new();
+    enter.set_propagation_phase(gtk::PropagationPhase::Capture);
+    enter.connect_key_pressed(|_, key, _, state| {
+        use gtk::gdk::{Key, ModifierType};
+        let modified =
+            state.intersects(ModifierType::CONTROL_MASK | ModifierType::SHIFT_MASK | ModifierType::ALT_MASK);
+        if modified || !matches!(key, Key::Return | Key::KP_Enter | Key::ISO_Enter) {
+            return glib::Propagation::Proceed;
+        }
+        show_properties();
+        glib::Propagation::Stop
+    });
+    list.view.add_controller(enter);
     list.selection.connect_selection_changed(|_, _, _| selection_changed());
 
     add_actions(&window, &list);
@@ -1699,6 +1751,10 @@ fn on_alerts() {
                 Alert::FileRenamed { id, .. } | Alert::FileRenameFailed { id, .. } => {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
                     a.detail.push_log(format!("{} {name}: {}", now_hms(), alert.message()));
+                    // a refused Relocate (the target exists: the engine never overwrites a file)
+                    if let Alert::FileRenameFailed { ref error, .. } = alert {
+                        errors.push((tr!(CannotRelocate, name), error.to_string()));
+                    }
                     if a.detail.id == Some(id) {
                         a.handle.torrent(id).post_file_list();
                     }
@@ -3078,6 +3134,9 @@ fn apply_options(a: &mut App, o: &Options) {
     // the title gains or loses the speeds now, not at the next second
     a.title_speed = o.gui.title_speed;
     sync_title(a);
+    if o.gui.alternate_rows != old.gui.alternate_rows {
+        set_alternate_rows(o.gui.alternate_rows);
+    }
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
             let t = a.handle.torrent(id);

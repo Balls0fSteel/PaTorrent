@@ -301,6 +301,7 @@ CannotStartEngine=Impossibile avviare il motore BitTorrent
 CannotAdd=Impossibile aggiungere {name}
 CannotOpen=Impossibile aprire {path}
 CannotDownload=Impossibile scaricare {url}
+CannotRelocate=Impossibile spostare o rinominare un file di {name}
 ErrNotALink=Non è un link che PaTorrent possa aggiungere
 UrlPlaceholder=magnet:?xt=… oppure https://…/file.torrent
 MenuRemoveAndDelete=Rimuovi &ed elimina i dati

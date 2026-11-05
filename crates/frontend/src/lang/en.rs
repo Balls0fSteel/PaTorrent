@@ -456,6 +456,8 @@ strings! {
     CannotAdd = "Could not add {name}";
     CannotOpen = "Could not open {path}";
     CannotDownload = "Could not download {url}";
+    /// The Files tab's Relocate (or a rename) refused, for example by a file already there.
+    CannotRelocate = "Could not move or rename a file of {name}";
     ErrNotALink = "Not a link PaTorrent can add";
     /// Keep the example links as they are.
     UrlPlaceholder = "magnet:?xt=… or https://…/file.torrent";

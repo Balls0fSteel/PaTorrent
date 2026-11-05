@@ -301,6 +301,7 @@ CannotStartEngine=เริ่มเอนจิน BitTorrent ไม่ได�
 CannotAdd=เพิ่ม {name} ไม่ได้
 CannotOpen=เปิด {path} ไม่ได้
 CannotDownload=ดาวน์โหลด {url} ไม่ได้
+CannotRelocate=ไม่สามารถย้ายหรือเปลี่ยนชื่อไฟล์ของ {name}
 ErrNotALink=ไม่ใช่ลิงก์ที่ PaTorrent เพิ่มได้
 UrlPlaceholder=magnet:?xt=… หรือ https://…/file.torrent
 MenuRemoveAndDelete=เอาออกและลบข้อมูล(&A)

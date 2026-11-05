@@ -301,6 +301,7 @@ CannotStartEngine=تعذّر تشغيل محرك BitTorrent
 CannotAdd=تعذّرت إضافة {name}
 CannotOpen=تعذّر فتح {path}
 CannotDownload=تعذّر تنزيل {url}
+CannotRelocate=تعذّر نقل ملف من {name} أو إعادة تسميته
 ErrNotALink=ليس رابطًا يستطيع PaTorrent إضافته
 UrlPlaceholder=magnet:?xt=… أو https://…/file.torrent
 MenuRemoveAndDelete=إزالة &وحذف البيانات

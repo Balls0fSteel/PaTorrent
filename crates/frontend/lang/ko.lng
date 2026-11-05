@@ -301,6 +301,7 @@ CannotStartEngine=BitTorrent 엔진을 시작할 수 없습니다
 CannotAdd={name}을(를) 추가할 수 없습니다
 CannotOpen={path}을(를) 열 수 없습니다
 CannotDownload={url}을(를) 다운로드할 수 없습니다
+CannotRelocate={name}의 파일을 이동하거나 이름을 바꿀 수 없습니다
 ErrNotALink=PaTorrent가 추가할 수 있는 링크가 아닙니다
 UrlPlaceholder=magnet:?xt=… 또는 https://…/file.torrent
 MenuRemoveAndDelete=제거하고 데이터 삭제(&A)

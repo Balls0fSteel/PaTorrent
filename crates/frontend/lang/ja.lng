@@ -301,6 +301,7 @@ CannotStartEngine=BitTorrent エンジンを開始できません
 CannotAdd={name} を追加できませんでした
 CannotOpen={path} を開けませんでした
 CannotDownload={url} をダウンロードできませんでした
+CannotRelocate={name} のファイルを移動または名前変更できませんでした
 ErrNotALink=PaTorrent で追加できるリンクではありません
 UrlPlaceholder=magnet:?xt=… または https://…/file.torrent
 MenuRemoveAndDelete=削除してデータも消去(&A)

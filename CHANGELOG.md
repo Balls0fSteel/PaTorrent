@@ -13,6 +13,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Changed (23):** a web seed's `Retry-After` is honoured even when shorter than `urlseed_wait_retry` (at least 1 s, added at merge so `Retry-After: 0` cannot loop). libtorrent 2.0.11 raises it; PORTING.md "Web seed errors" updated.
 - **Fixed (36, 38):** an out-of-range DHT node port in a .torrent is skipped, not truncated; `MerkleTree::add_hashes` on a file of at most half a piece and `load_sparse_tree` on a 0-block tree no longer panic (the third cited panic, `get_piece_layer` for one block, did not reproduce).
 - Each with a test (tests for 18, 19, 20, 23 failed before the fix); clippy and all core tests pass. All 21 low findings are now closed: 20 fixed, 35 ruled out (1.1.73).
+- **Validated (2026-11-05_102905_1793870945):** on the Xubuntu VM, `patorrent-gtk` passes clippy and the core (912), frontend and nox tests pass. That run caught a flaky `a_taken_port_is_not_reused`: a parallel test can take the freed ephemeral port first. It now retries with fresh ports (test-only, no version bump). BACKLOG, BUGHUNT and PLAN updated; PLAN proposes peer ID `-PA1013-` for 1.2.0.
 
 ## 2026-11-05_102244_1793870564: Version 1.1.73: the bug hunt's disk and platform low findings (24, 25, 34; 35 ruled out)
 

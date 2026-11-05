@@ -1,6 +1,6 @@
 # Detailed backlog
 
-Last updated: 2026-11-05_090015_1793865615 (Europe/Budapest).
+Last updated: 2026-11-05_102905_1793870945 (Europe/Budapest).
 
 Start with [PLAN.md](../PLAN.md) for priorities and release gates. Load only the
 topic needed here. These are open checks, known limitations and conditional
@@ -16,18 +16,10 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
   Web UI's bypass names as `SID` cookies, the `is_idna` panic on a non-ASCII web seed host, a borrowed
   file name collapsing a path to the torrent root, a disk barrier waiting behind other torrents' checks
   and stalling every peer, and `/pa/remote` skipping the path policy: all five fixed in 1.1.69 with tests.
-  The twelve medium ones (6-17) were fixed in 1.1.70 with tests (2026-11-05). Open: the 21 low findings
-  18-38, none of which a user is likely to meet: a wrong-length block held until the snub (18), the uTP
-  FIN lost while the socket is stalled (19) and the debug assertion in `defer_ack` (20), a relative
-  `Location` with `://` in its query (21), the NAT-PMP resend timer lost on an unmatched reply (22), a
-  web seed's short `Retry-After` ignored (23), Windows renames and cross-volume moves past MAX_PATH (24),
-  an interrupted part-file export (25), the Win32 window restored off-screen (26), stale row indices in
-  the Win32 search sources and the scheduler grid painting after a lost capture (27, 28), the untrimmed
-  Win32 download folder (29), GTK Create's Cancel racing the last piece (30), a named service profile's
-  identity (31), `set_sort(None)` outside the change journal (32), a partial `webui.json` after a failed
-  migration copy (33), the pinger's ICMPv6 handle leak (34), a possible SChannel context leak on a split
-  ClientHello (35), a DHT node port truncated (36), the Web UI ban list's count never decaying (37), and
-  the merkle tree's public-API panics (38).
+  The twelve medium ones (6-17) were fixed in 1.1.70 with tests (2026-11-05). The 21 low ones were
+  closed in 1.1.71-1.1.74 (2026-11-05_102610_1793870770): 20 fixed, 35 ruled out. Nothing from the
+  hunt is open. Hand checks worth doing once: the Win32 window after unplugging a monitor (26), and GTK
+  Create's Cancel during the last piece (30, compiled but not run).
 
 ## Security and TLS
 

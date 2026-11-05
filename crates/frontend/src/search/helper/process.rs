@@ -379,11 +379,17 @@ mod tests {
 
     #[test]
     fn a_taken_port_is_not_reused() {
-        let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
-        let taken = l.local_addr().unwrap().port();
-        let p = free_port(taken).unwrap();
-        assert_ne!(p, taken);
-        drop(l);
-        assert_eq!(free_port(taken).unwrap(), taken);
+        // Once freed, the port is offered again; a test running in parallel may grab the freed
+        // ephemeral port first (seen on Linux), so that half gets a few tries with fresh ports.
+        for _ in 0..5 {
+            let l = TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+            let taken = l.local_addr().unwrap().port();
+            assert_ne!(free_port(taken).unwrap(), taken);
+            drop(l);
+            if free_port(taken).unwrap() == taken {
+                return;
+            }
+        }
+        panic!("a freed port was never offered again");
     }
 }

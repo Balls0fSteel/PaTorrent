@@ -55,9 +55,9 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 - HTTPS Web UI: open in Firefox and Chrome, compare the printed fingerprint,
   accept the certificate, log in and verify live `wss://` updates. Prior checks
   used OpenSSL/curl and loopback tests. Check the LocalService CNG key store with
-  a real Windows service. HTTPS is configured on the command line; Preferences
-  and the compatibility shim have no HTTPS/certificate fields, and listener
-  changes need a restart.
+  a real Windows service. nox takes its certificate files on the command line only;
+  the Win32 GUI's Web UI page has an HTTPS box (its own certificate), GTK has no Web UI
+  page, the compatibility shim has no certificate fields, and listener changes need a restart.
 - `schannel::tests::keys_left_by_processes_that_are_gone_are_swept` uses a fixed
   key name and can collide with overlapping tests or a running nox sweep; use a
   per-run name if fixing it. A Windows WebSocket thread can keep the persisted
@@ -85,7 +85,7 @@ in its title bar. Still open from that round:
   Shift+Del shown on the context menu). Ctrl+Space was left to the list view, whose own
   key it is (toggle the focused row's selection).
 - **Checking progress:** several newly added torrents sat at "Checking 0.0 %" together;
-  `active_checking` is 1, so confirm whether the rest should read "Queued for checking"
+  `active_checking` was 1 then (4 since smart disk I/O, D48), so confirm whether the rest should read "Queued for checking"
   (auto-managed) or whether the checks stall. Not reproduced yet.
 - **GTK:** no alternate row shading (a CSS `nth-child` rule on the column view's rows would
   do; the UI Settings box is hidden there, `Features::alternate_rows`), and the new
@@ -143,8 +143,7 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
 - Preferences defaults for peer connections/upload slots apply to future adds,
   not existing torrents; setters now exist if live propagation is wanted. Both
   defaults are unlimited, unlike 2.2.1's remembered 50 and 4. `aio_threads` and
-  `hashing_threads` are read only at session start. Local-GUI Web UI Preferences
-  remains a placeholder; Advanced lacks per-setting help. Win32 and shared
+  `hashing_threads` are read only at session start. Win32 and shared
   `pref_pages` still have separate field tables and must be kept in sync.
 - Dialog procedures hold `&mut State` across calls that can notify the same
   procedure; a `RefCell` pattern like `app.rs::with_app` would be stricter.
@@ -218,8 +217,8 @@ That broad check does not establish that every detailed case below was tried.
 - Preferences: check long captions, greying, pickers, Random Port, IP filter
   reload/status, Advanced filter/changed rows/Set/Reset/Enter/True/False, invalid
   values and focus/page changes, OK/Cancel/Apply/Escape, the language notice, and
-  live rate/move/auto-load/seeding-goal effects. The flat `StackSidebar` indents
-  Disk Cache with spaces. Web UI remains a missing page; Scheduler is present.
+  live rate/move/auto-load/seeding-goal effects. Web UI remains a missing page; Scheduler
+  is present.
 - Dialogs: test scheduler click/drag/fast drag, hover/legend, disabled state,
   long translations, Arabic layout and a live hour boundary. Neither GUI's grid
   has keyboard control. Test Properties' mixed-value cycle, invalid trackers and
@@ -264,11 +263,8 @@ That broad check does not establish that every detailed case below was tried.
   completion notifications. Check X11/Wayland; compositors may not report
   minimized state, in which case minimize-to-tray stays a normal minimize.
   Tray menus lack Auto Shutdown and limits in both GUIs.
-- Icons (2026-10-26_100209_1793005329, D27): bold revision 3 artwork is ready in
-  `assets/ui-icon-explorations/`; integrate its 24 shared symbols and 11 toolbar
-  actions. Win32 still draws its toolbar and GTK still uses theme icons; both
-  GUIs still embed the earlier Patina state exports. Preserve state precedence
-  and the no-incoming-observed meaning. Then check the actual toolkit rendering.
+- Icons (D27): the bold artwork is integrated in both GUIs (state icons and toolbar from
+  `frontend::icons`; see "UI icon coverage"). Check the actual toolkit rendering.
 - Icons: check installed themed icons, tray `IconName`/`IconThemePath` across
   hosts, list/Trackers textures, About and DPIs beyond 100%. The chosen family is
   provisionally Verdigris via `app-icon.txt`; non-MSVC Windows builds retain a
@@ -690,9 +686,9 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   failed at once instead of after 15 s. Not investigated: high loss counters on uTP from
   qBittorrent into us on loopback (824 lost, 8 timeouts) while 38.5 MB still finished in 1.5-12 s.
 - Older queueing gaps seen in the rerun: a queued auto-managed torrent that never started
-  shows `checkingResumeData` in the shim where qBittorrent shows `queuedDL`; `active_checking`
-  is not implemented, so a complete torrent queued behind downloads is checked only when it
-  gets a download slot.
+  shows `checkingResumeData` in the shim where qBittorrent shows `queuedDL`. `active_checking`
+  is used since smart disk I/O (D48); whether a complete torrent queued behind downloads is
+  still checked only when it gets a download slot is unverified.
 
 ## Updates, installer and website
 
@@ -802,9 +798,8 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   auto-manage pass finish; a status-bar "Restoring N torrents" until
   `Alert::TorrentsRestored` (ignored by both GUIs today) would be cheap. Synchronous
   GUI-thread I/O at start: the IP filter and `rss.dat` (settings folder, local).
-- **The auto-load folder poll runs on the GUI thread every timer tick** (`app.rs`
-  `autoload` → `torrent_folders::read`, GTK the same): a watch folder on a slow share
-  stalls the UI once a second. Move it to a worker (the RSS `Worker` pattern).
+- **The auto-load folder poll** ran on the GUI thread every timer tick; both GUIs now use
+  `torrent_folders::Watcher` (done).
 - **Shutdown is the real case.** Win32 `on_destroy` hides the window and the tray icon at
   once, then blocks the GUI thread in `Session::shutdown` (a join); GTK blocks with the
   window still visible (looks hung). The engine waits for in-flight moves and renames with
@@ -815,9 +810,6 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   wait too. No alert reaches the GUI during this, so there is no phase to show. A relaunch
   meanwhile finds the mutex but no window: `instance::forward` gives up after 5 s and the
   new instance exits silently.
-- **No `WM_QUERYENDSESSION` / `WM_ENDSESSION` handling** in the Win32 GUI: at a Windows
-  logoff or shutdown the process gets the system's few seconds and is killed, possibly
-  before the resume data is saved. nox's service asks for 60 s (PRESHUTDOWN).
 - **Done in 1.1.25 (2026-11-02_083027_1793604627):** the Win32 GUI handles
   `WM_QUERYENDSESSION` (`ShutdownBlockReasonCreate`, "Saving the torrent list and
   progress...") and `WM_ENDSESSION` (stops the engine there, window left as it is, then
@@ -908,8 +900,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 - Not run: a real Finish or Skip at a first start in either GUI (the registry and XDG writes,
   the main window afterwards, the D42 keys saved only when the guide closes); Ctrl+G and the menu
   item at run time; GTK's Next, Back, Finish and Skip under Xvfb; the Win32 dialog at 150-200 %
-  DPI and in RTL. The translations are unreviewed machine output; mnemonics may clash within the
-  guide's buttons (sk, hr, sr).
+  DPI and in RTL. The translations are unreviewed machine output; the four buttons' mnemonics are
+  distinct in sk, hr and sr (2026-11-05), a clash with page controls is unchecked.
 - A second start during the first-start guide (a `.torrent` or link handed over): fixed in Win32
   in 1.1.64 (a hidden `<main class>.Waiting` window takes them, added when the main window
   exists); GTK already queued them in `PENDING`. Both run with two real processes 2026-11-04
@@ -940,7 +932,6 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   the units drop it or the docs keep the override. The Web UI size budget of 236 KB (was 220)
   is confirmed by the owner. Screenshots of the new Win32 button row
   (four 84-DLU buttons, long translations may crowd them) and the GTK window.
-- Website: the FAQ paragraph from the agent's report is not on the site yet.
 
 ## Network binding for VPNs (D54; built 2026-11-04, 1.1.58)
 

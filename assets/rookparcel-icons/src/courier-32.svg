@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Rookparcel</title>
+  <desc>The courier rook's head in its postal cap on a paper tile with a stamp-red rim: the 20-32 px mark (after the generated 09 Compact Courier).</desc>
+  <defs>
+    <clipPath id="paper"><rect x="2" y="2" width="28" height="28" rx="2.5"/></clipPath>
+  </defs>
+  <!-- tile: stamp-red rim, paper inside -->
+  <rect x="0.5" y="0.5" width="31" height="31" rx="4" fill="#B8352A"/>
+  <rect x="2" y="2" width="28" height="28" rx="2.5" fill="#F7EEDC"/>
+  <g clip-path="url(#paper)">
+    <g transform="translate(-1.5 0)">
+      <!-- head and neck -->
+      <path d="M4.5 31 C4.5 25 5 19 6.5 15.5 C8 10.5 11 8.5 14.5 8.5 C18.5 8.5 21 11 21.5 15 L21.5 21 C21.5 24.5 22.5 28 23.5 31 Z" fill="#14233D"/>
+      <!-- long straight beak, dark horn -->
+      <path d="M18.4 10.7 L29.6 16.2 C29.9 16.4 29.9 16.7 29.6 16.8 L18.4 21.3 Z" fill="#14233D"/>
+      <!-- the rook's pale bare skin at the base of the beak, following its edges -->
+      <path d="M17.9 10.5 L22.6 12.8 C23.4 14.8 23.4 17.6 22.6 19.4 L18 21.5 C16.9 18.2 16.9 13.8 17.9 10.5 Z" fill="#C9CFD8"/>
+      <!-- eye with a heavy lid -->
+      <circle cx="14.6" cy="14.6" r="1.9" fill="#F7EEDC"/>
+      <circle cx="15" cy="14.9" r="0.95" fill="#14233D"/>
+      <path d="M12.4 14.4 C12.9 12.4 16.4 12.3 16.9 14 L16.9 12.2 L12.4 12.2 Z" fill="#14233D"/>
+      <!-- postal cap: crown, band, badge, peak -->
+      <path d="M5.2 10.4 C5.6 5.8 11.5 3.6 16.8 4 C20.8 4.3 23.2 6.3 22.8 9.6 Z" fill="#B8352A"/>
+      <path d="M5.2 9.4 L22.8 9.1 L22.8 11.2 L5.2 11.6 Z" fill="#8E271F"/>
+      <circle cx="16.4" cy="6.9" r="1.25" fill="#F2C14E"/>
+      <path d="M20.5 10 L27.5 10.9 C27 12.6 23.4 12.9 20.5 12.4 Z" fill="#8E271F"/>
+    </g>
+  </g>
+</svg>

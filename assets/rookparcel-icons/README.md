@@ -6,13 +6,13 @@ each size range instead of one picture shrunk to every size:
 
 | Sizes | Source | What it shows |
 |---|---|---|
-| 16 px | `src/mark-16.txt` → `src/mark-16.svg` (pixel by pixel, `pixelmap.py`) | stamp edge, red cap with badge, the rook's head, parcel |
-| 20-32 px | `src/mark-32.svg` (vector) | the head close-up: cap, pale rook face, beak on the parcel |
+| 16 px | `src/courier-16.txt` → `src/courier-16.svg` (pixel by pixel, `pixelmap.py`) | red rim, cap with badge and peak, the rook's head and eye, pale beak base |
+| 20-32 px | `src/courier-32.svg` (vector, after the generated 09 Compact Courier the owner chose) | the courier rook's head on a paper tile with a stamp-red rim: peaked cap with gold badge, a determined eye, a long beak with the rook's pale bare base |
 | 48-512 px | `src/stamp-512.png` (the generated stamp, owner's choice) | the full stamp: rook in a postal cap, courier bag, parcel in its beak |
 
 The pale bare face at the base of the beak is what tells a rook from a crow; it also keeps the
 beak visible at small sizes. Palette: stamp red `#B8352A`, navy `#14233D`, paper `#F7EEDC`, kraft
-`#C4864A`, badge gold `#F2C14E`. `src/stamp-256.svg` is a vector version of the stamp, kept as the
+`#C4864A`, badge gold `#F2C14E`. `src/mark-16`/`mark-32` (the first small marks, a stamp close-up with a parcel) and `src/stamp-256.svg` (a vector stamp) are kept as alternatives; the latter is the
 alternative for the large sizes (`preview-512.png`).
 
 Build (sharp, as the other icon tools; on this PC under Strata's harness):

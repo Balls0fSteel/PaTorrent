@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_230319_1793916199: Version 1.2.4: the small app icon is the courier rook (09, redrawn)
+
+- The owner chose GPT's `09 Compact Courier` for 16-32 px. Redrawn in `assets/rookparcel-icons`: `src/courier-32.svg` (20-32 px, vector) and `src/courier-16.txt`/`.svg` (16 px, pixel by pixel), with a heavier, long two-toned rook beak (pale bare base), a smaller lidded eye, a peaked cap with band and gold badge, and the flat cream square replaced by a paper tile with a stamp-red rim that holds its edge on dark taskbars. The stamp stays from 48 px; `build.cjs` rebuilt `04-postal-rook`. D60 updated.
+- Checked: the Win32 and nox builds, `the_app_icon_at_every_size`, `comparison.png` (before, GPT's 09, now; light and dark), and the icons Windows extracts from the built `rookparcel.exe`.
+
 ## 2026-11-05_225249_1793915569: Postal Rook candidates designed for small sizes
 
 - Saved 11 built-in image-generation masters, exact prompts, PNG frames and ICOs in [the small-icon study](docs/art/postal-rook-small-2026-11-05/README.md). Decoded all 110 ICO frames; reviewed actual 16/20/24/32/48 px on light and dark backgrounds against the original stamp.

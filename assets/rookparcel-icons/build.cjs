@@ -1,11 +1,12 @@
 // Builds the Rookparcel app icon, family 04-postal-rook (D59), from three sources:
-//   16 px         src/mark-16.svg   (drawn pixel by pixel: src/mark-16.txt, pixelmap.py)
-//   20-32 px      src/mark-32.svg   (the head close-up)
+//   16 px         src/courier-16.svg (drawn pixel by pixel: src/courier-16.txt, pixelmap.py)
+//   20-32 px      src/courier-32.svg (the courier rook's head, after the generated 09 Compact Courier)
 //   48-512 px     src/stamp-512.png (the generated Postal Rook stamp the owner chose for the
 //                 large sizes, docs/art/rookparcel-candidates-2026-11-05)
 // into ../patina-icons/exports/app/04-postal-rook/<size>.png and 04-postal-rook.ico, where every
 // program and package reads the family ../patina-icons/app-icon.txt names
-// (../patina-icons/INTEGRATION.md). src/stamp-256.svg is the vector stamp kept as an alternative.
+// (../patina-icons/INTEGRATION.md). src/stamp-256.svg (a vector stamp) and src/mark-16/-32 (the first
+// small marks, a stamp close-up) are kept as alternatives.
 //   SHARP=<path to sharp> node build.cjs
 const fs = require('fs');
 const path = require('path');
@@ -13,7 +14,7 @@ const sharp = require(process.env.SHARP || 'sharp');
 
 const root = __dirname;
 const FAMILY = '04-postal-rook';
-const SOURCE = (size) => (size <= 16 ? 'mark-16.svg' : size <= 32 ? 'mark-32.svg' : 'stamp-512.png');
+const SOURCE = (size) => (size <= 16 ? 'courier-16.svg' : size <= 32 ? 'courier-32.svg' : 'stamp-512.png');
 // as ../patina-icons/manifest.json's appPngSizes and the ICO frames crates/win32/build.rs embeds
 const PNG_SIZES = [16, 20, 24, 32, 48, 64, 128, 256, 512];
 const ICO_SIZES = [16, 20, 24, 32, 48, 64, 128, 256];

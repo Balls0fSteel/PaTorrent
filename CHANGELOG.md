@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_230706_1793916426: Published: the rename on GitHub `main` and the wiki
+
+- The owner renamed the repository to `Balls0fSteel/Rookparcel`; Pages serves `https://balls0fsteel.github.io/Rookparcel/`. `origin` now names the new URL. `main` was fast-forwarded to `58e5b1fa` (1.2.2-1.2.4, the icons and the site colours) and pushed.
+- Wiki `b97aafa`: `docs/wiki` and the search guide copied over; `Installing-`, `Updating-`, `Where-...-keeps-its-files` and `Running-...-nox` have new names, and the old pages are one-line pointers to them (they also show in GitHub's automatic page list). Checked first that the wiki had no edits outside `docs/wiki`. The screenshots still show the old name in title bars.
+
 ## 2026-11-05_230319_1793916199: Version 1.2.4: the small app icon is the courier rook (09, redrawn)
 
 - The owner chose GPT's `09 Compact Courier` for 16-32 px. Redrawn in `assets/rookparcel-icons`: `src/courier-32.svg` (20-32 px, vector) and `src/courier-16.txt`/`.svg` (16 px, pixel by pixel), with a heavier, long two-toned rook beak (pale bare base), a smaller lidded eye, a peaked cap with band and gold badge, and the flat cream square replaced by a paper tile with a stamp-red rim that holds its edge on dark taskbars. The stamp stays from 48 px; `build.cjs` rebuilt `04-postal-rook`. D60 updated.

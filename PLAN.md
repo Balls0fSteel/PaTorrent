@@ -20,7 +20,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **Small Postal Rook studies (2026-11-05_225249_1793915569):** [11 new candidates](docs/art/postal-rook-small-2026-11-05/README.md), with ICOs and actual 16 px comparisons. Review shortlist: 10 Night Courier, 11 Closed Envelope, 09 Compact Courier. Candidate exploration only; D60 and production assets unchanged.
 
-- **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. **Owner:** rename the GitHub repository and push the wiki ([RELEASING.md](docs/RELEASING.md#the-first-release-as-rookparcel-d59)); wire in the new icon assets. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux and macOS.
+- **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. The repository is renamed (Pages at `/Rookparcel/`), `main` and the wiki are pushed (2026-11-05); the icon is D60. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux and macOS.
 
 - **UI icon studies (2026-11-05_221629_1793913389):** [96 studies across four sheets](docs/art/rookparcel-ui-2026-11-05/README.md), with prompts and review. Next: select candidates, correct state semantics, then redraw and check native 16/20/24 px exports before integration.
 

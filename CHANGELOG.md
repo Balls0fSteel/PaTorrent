@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_102244_1793870564: Version 1.1.73: the bug hunt's disk and platform low findings (24, 25, 34; 35 ruled out)
+
+- **Fixed (24):** on Windows, renames and cross-volume moves past MAX_PATH no longer fail: `MoveFileExW` and `CopyFileExW` get the `\\?\` / `\\?\UNC\` form as `std::fs` does (`file_pool::wide_path`). Real long-path rename and copy tests fail without it.
+- **Fixed (25):** a part-file export into a file not yet on disk writes `<name>.pa-export`, syncs and renames it once whole; the part file frees the pieces only then, so an interrupted export runs again on the next start instead of leaving a short file.
+- **Fixed (34):** the Windows pinger no longer leaks the ICMPv6 handle when ICMPv4 is unavailable.
+- **Ruled out (35):** SChannel creates no server context while a ClientHello is incomplete (probed: `SEC_E_INCOMPLETE_MESSAGE`, handle 0/0). Two tests pin it, one a split-hello handshake on every TLS backend.
+- clippy and all core tests pass (905 lib tests).
+
 ## 2026-11-05_101942_1793870382: Version 1.1.72: the bug hunt's nox, frontend and GTK low findings fixed (30-33, 37)
 
 - **Fixed, GTK (30):** a Cancel that arrives while Create New Torrent's worker finishes discards the result and removes the written .torrent instead of seeding it. Read only on Windows; compiled on the Xubuntu VM with the rest (below).

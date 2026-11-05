@@ -274,18 +274,23 @@ impl PartFile {
     }
 
     /// Hands the stored bytes of the torrent range `offset..offset + size` (one file) to `f` as
-    /// (offset in the range, data), piece by piece, then frees the pieces the range covers whole
-    /// (libtorrent `export_file`). Pieces not in the part file are skipped.
+    /// (offset in the range, data), piece by piece, then runs `finish` and frees the pieces the
+    /// range covers whole (libtorrent `export_file`, which frees each piece as it goes). Pieces
+    /// not in the part file are skipped. Nothing is freed unless every `f` and `finish`
+    /// succeed, so an interrupted export can be run again from the start.
     pub fn export_file(
         &self,
         offset: u64,
         size: u64,
         mut f: impl FnMut(u64, &[u8]) -> io::Result<()>,
+        finish: impl FnOnce() -> io::Result<()>,
     ) -> io::Result<()> {
         let mut inner = self.lock();
         if inner.map.is_empty() || size == 0 {
             return Ok(());
         }
+        // (piece, slot) of the whole pieces exported, freed once all went well
+        let mut exported = Vec::new();
         let ps = self.piece_size as u64;
         let end = (offset + size).div_ceil(ps);
         let mut piece = offset / ps;
@@ -304,15 +309,24 @@ impl PartFile {
                 read_at(&file, &mut buf, self.slot_offset(slot) + piece_offset)?;
                 f(file_offset, &buf)?;
                 inner = self.lock();
-                if copy as u64 == ps && inner.map.slot(piece as u32) == Some(slot) {
-                    inner.map.free(piece as u32);
-                    inner.dirty = true;
+                if copy as u64 == ps {
+                    exported.push((piece as u32, slot));
                 }
             }
             file_offset += copy as u64;
             left -= copy as u64;
             piece_offset = 0;
             piece += 1;
+        }
+        drop(inner);
+        finish()?;
+        let mut inner = self.lock();
+        for (piece, slot) in exported {
+            // a piece written again meanwhile is not the one exported: keep it
+            if inner.map.slot(piece) == Some(slot) {
+                inner.map.free(piece);
+                inner.dirty = true;
+            }
         }
         Ok(())
     }
@@ -516,13 +530,18 @@ mod tests {
             assert_eq!(back, buf);
 
             let mut seen = 0u64;
-            pf.export_file(10 * PIECE as u64, 1024, |file_offset, data| {
-                for (i, &b) in data.iter().enumerate() {
-                    assert_eq!(b, (file_offset + i as u64) as u8);
-                }
-                seen += data.len() as u64;
-                Ok(())
-            })
+            pf.export_file(
+                10 * PIECE as u64,
+                1024,
+                |file_offset, data| {
+                    for (i, &b) in data.iter().enumerate() {
+                        assert_eq!(b, (file_offset + i as u64) as u8);
+                    }
+                    seen += data.len() as u64;
+                    Ok(())
+                },
+                || Ok(()),
+            )
             .unwrap();
             assert_eq!(seen, 1024);
 
@@ -612,12 +631,36 @@ mod tests {
         pf.write(&data[start as usize..ps as usize], 0, ps - 100).unwrap();
         pf.write(&data[ps as usize..2 * ps as usize], 1, 0).unwrap();
         pf.write(&data[2 * ps as usize..2 * ps as usize + 200], 2, 0).unwrap();
+        // An export that fails after piece 1 went out whole (BUGHUNT 25), or whose finish fails,
+        // frees nothing: it can run again from the start.
+        let fail = || io::Error::other("disk full");
+        let e = pf.export_file(
+            start,
+            len,
+            |off, _| if off > ps as u64 { Err(fail()) } else { Ok(()) },
+            || Ok(()),
+        );
+        assert!(e.is_err());
+        assert!(pf.has_piece(0) && pf.has_piece(1) && pf.has_piece(2));
+        let e = pf.export_file(start, len, |_, _| Ok(()), || Err(fail()));
+        assert!(e.is_err());
+        assert!(pf.has_piece(0) && pf.has_piece(1) && pf.has_piece(2));
         let mut out = vec![0u8; len as usize];
-        pf.export_file(start, len, |off, buf| {
-            out[off as usize..off as usize + buf.len()].copy_from_slice(buf);
-            Ok(())
-        })
+        let mut finished = false;
+        pf.export_file(
+            start,
+            len,
+            |off, buf| {
+                out[off as usize..off as usize + buf.len()].copy_from_slice(buf);
+                Ok(())
+            },
+            || {
+                finished = true;
+                Ok(())
+            },
+        )
         .unwrap();
+        assert!(finished);
         assert_eq!(out, data[start as usize..(start + len) as usize]);
         assert!(pf.has_piece(0) && !pf.has_piece(1) && pf.has_piece(2));
         drop(pf);

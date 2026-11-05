@@ -1098,6 +1098,31 @@ pub(crate) fn self_signature_verifies(cert: &[u8]) -> bool {
 mod tests {
     use super::*;
 
+    /// BUGHUNT 35: a server's first AcceptSecurityContext over part of a ClientHello returns
+    /// SEC_E_INCOMPLETE_MESSAGE and leaves the new-context handle unwritten, so leaving `has_ctx`
+    /// false (and passing a null old context next time) leaks nothing. Fails if SChannel ever
+    /// starts handing out a context on that path.
+    #[test]
+    fn a_split_client_hello_creates_no_server_context_until_it_is_whole() {
+        use crate::net::tls::TlsSession;
+        let pem = crate::net::tls::generate_self_signed(&["localhost"], 1).unwrap();
+        let id =
+            crate::net::tls::Identity::from_pem(pem.cert_pem.as_bytes(), pem.key_pem.as_bytes()).unwrap();
+        let mut c = Session::client("localhost", Check::Pinned(id.fingerprint())).unwrap();
+        let hello = std::mem::take(c.outgoing());
+        let mut s = Session::server(&id.inner).unwrap();
+        let mut plain = Vec::new();
+        for part in hello[..hello.len() - 1].chunks(7) {
+            s.feed(part, &mut plain).unwrap();
+            assert!(!s.has_ctx);
+            assert_eq!((s.ctx.dwLower, s.ctx.dwUpper), (0, 0), "a context SChannel created was dropped");
+            assert!(s.out.is_empty());
+        }
+        s.feed(&hello[hello.len() - 1..], &mut plain).unwrap();
+        assert!(s.has_ctx);
+        assert!(!s.out.is_empty(), "the ServerHello");
+    }
+
     #[test]
     fn verifying_clients_check_revocation_and_pinned_ones_do_not() {
         let has = |check, flag| client_flags(check) & flag == flag;

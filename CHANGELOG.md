@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_205340_1793908420: Version 1.2.1: a login banned meanwhile is answered "banned"
+
+- **Fixed:** `check_login` (`crates/nox/src/webui/api.rs`) returns `Login::{Ok, Failed, Banned}`. A login refused because another guess got the address banned meanwhile is answered 403 with the ban text instead of "Fails."; a remote-session login in that case gets 403 instead of 401 (the client already shows 403's text). `login`'s separate ban check before it is gone, so the check and the count happen under one lock.
+- Found by macOS CI (`parallel_guesses_stop_at_the_ban_limit` counted 6 "Fails."); the ban itself always held. Clippy (nox, Win32), all nox tests on one thread at Idle priority, and that test 10 times in a row pass. BACKLOG item removed.
+
 ## 2026-11-05_183712_1793900232: Release 1.2.0 (1.1.41-1.1.78)
 
 - **1.2.0** ships 1.1.41-1.1.78 (D58): profiles and portable mode everywhere (D42), the Files filter (D50), the search helper (D51), the Setup Guide (D53), "Use only this network" (D54), help texts (D55), the 2026-11-05 bug hunt (37 of 38 fixed, one ruled out) and the backlog fixes. Release notes: [docs/releases/1.2.0.md](docs/releases/1.2.0.md); Flatpak metainfo `<release>` added.

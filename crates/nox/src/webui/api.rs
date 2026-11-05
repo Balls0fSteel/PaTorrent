@@ -860,13 +860,24 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     }
 }
 
+/// What [`check_login`] found.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Login {
+    Ok,
+    /// The password was checked and is wrong (counted towards the ban).
+    Failed,
+    /// The address is banned; nothing was checked. A request banned after an earlier look at
+    /// the ban (another guess got the address banned meanwhile) lands here too.
+    Banned,
+}
+
 /// Checks a user name and password (the hash outside the state lock: it is slow on purpose),
 /// counting a failure towards the address's ban and clearing its count on success.
-pub(super) fn check_login(shared: &Shared, user: &str, pass: &str, ip: IpAddr, now: Instant) -> bool {
+pub(super) fn check_login(shared: &Shared, user: &str, pass: &str, ip: IpAddr, now: Instant) -> Login {
     let (expected_user, hash) = {
         let mut st = shared.lock();
         if st.bans.is_banned(ip, now) {
-            return false;
+            return Login::Banned;
         }
         // counted as a failure before the slow hash, undone on success: parallel guesses
         // cannot all pass the ban check first (SEC-03)
@@ -879,19 +890,20 @@ pub(super) fn check_login(shared: &Shared, user: &str, pass: &str, ip: IpAddr, n
     let ok = constant_time_eq(user.as_bytes(), expected_user.as_bytes()) & pass_ok;
     if ok {
         shared.lock().bans.succeeded(ip);
+        Login::Ok
+    } else {
+        Login::Failed
     }
-    ok
 }
 
 fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
     let user = p.get("username").unwrap_or("");
     let pass = p.get("password").unwrap_or("");
     // as at accept: a client banned while its request waited is told so, not "Fails."
-    if shared.lock().bans.is_banned(ip, now) {
-        return Response::text(403, BANNED);
-    }
-    if !check_login(shared, user, pass, ip, now) {
-        return Response::text(200, "Fails.");
+    match check_login(shared, user, pass, ip, now) {
+        Login::Ok => {}
+        Login::Failed => return Response::text(200, "Fails."),
+        Login::Banned => return Response::text(403, BANNED),
     }
     let mut st = shared.lock();
     if st.sessions.len() >= MAX_SESSIONS {

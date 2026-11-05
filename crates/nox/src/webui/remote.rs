@@ -14,7 +14,7 @@ use std::time::Instant;
 use patorrent_core::Alert;
 use patorrent_core::remote::{self, FrameReader, Hello, Request};
 
-use super::api::{check_login, host_allowed};
+use super::api::{BANNED, Login, check_login, host_allowed};
 use super::http::{Head, Response};
 use super::server::Conn;
 use super::{Shared, prefs};
@@ -100,7 +100,11 @@ pub(super) fn handshake(shared: &Shared, head: &Head, ip: IpAddr) -> Result<(), 
         .and_then(|b| patorrent_core::util::string::base64decode(b.trim().as_bytes()))
         .and_then(|b| String::from_utf8(b).ok());
     let ok = match basic.as_deref().and_then(|b| b.split_once(':')) {
-        Some((user, pass)) => check_login(shared, user, pass, ip, now),
+        Some((user, pass)) => match check_login(shared, user, pass, ip, now) {
+            Login::Ok => true,
+            Login::Failed => false,
+            Login::Banned => return Err(Response::text(403, BANNED)),
+        },
         None => super::api::authorized(shared, head, ip),
     };
     if ok { Ok(()) } else { Err(Response::text(401, "Unauthorized")) }

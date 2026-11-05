@@ -1,40 +1,41 @@
 /* Rookparcel website. Hand-written, no framework (docs/WEBSITE.md).
-   Colours: the Verdigris app icon (teal medallion, copper rim, cream P) and the app's own
-   state-icon colours; the toolbar, list view and status bar nod to the µTorrent 2.2.1 window. */
+   Colours: the Postal Rook app icon (D60: stamp red, navy, paper cream, kraft, badge gold) and
+   the app's own state-icon colours; the toolbar, list view and status bar nod to the µTorrent
+   2.2.1 window. */
 
 :root {
   color-scheme: light dark;
-  --bg: #f6f5f0;
+  --bg: #f7f3ea;
   --surface: #ffffff;
-  --sunken: #efeee8;
-  --text: #1b2321;
-  --muted: #4a5653;
-  --border: #d0d6d2;
-  --link: #08665c;
-  --link-hover: #004540;
-  --brand: #1d756c;
-  --brand-deep: #004540;
-  --copper: #9b531d;
-  --cream: #f8f0dc;
-  --focus: #b8601c;
-  --hero-1: #003a35;
-  --hero-2: #0e5c54;
-  --hero-text: #fbf5e6;
-  --hero-muted: #d3e8e2;
-  --hero-link: #ffd9b8;
-  --btn-bg: #0b6b61;
-  --btn-bg-hover: #004f47;
+  --sunken: #efe9dd;
+  --text: #16202e;
+  --muted: #4b5363;
+  --border: #d8d0c2;
+  --link: #1e4a8a;
+  --link-hover: #14233d;
+  --brand: #b8352a;
+  --brand-deep: #8e271f;
+  --accent: #b8352a;
+  --cream: #f7eedc;
+  --focus: #c4864a;
+  --hero-1: #0f1b30;
+  --hero-2: #1d3256;
+  --hero-text: #f7eedc;
+  --hero-muted: #cfd6e2;
+  --hero-link: #f2c14e;
+  --btn-bg: #b8352a;
+  --btn-bg-hover: #8e271f;
   --btn-text: #ffffff;
   --lv-head-1: #ffffff;
-  --lv-head-2: #e9e8e2;
-  --lv-line: #dcdcd6;
-  --lv-alt: #f9f9f6;
-  --lv-hover: #dff0eb;
+  --lv-head-2: #ece6da;
+  --lv-line: #e0d9cc;
+  --lv-alt: #faf8f3;
+  --lv-hover: #f6e4df;
   --bevel-hi: #ffffff;
-  --bevel-lo: #a7afab;
-  --code-bg: #eceae2;
-  --note-bg: #eef6f3;
-  --note-line: #1d756c;
+  --bevel-lo: #ada596;
+  --code-bg: #efe8da;
+  --note-bg: #edf1f7;
+  --note-line: #1d3256;
   --warn-bg: #fff5dc;
   --warn-line: #b7801a;
   --ico-teal: #006b50;
@@ -45,8 +46,8 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 6px 20px rgb(0 0 0 / 7%);
   --radius: 6px;
   --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
-  --bar: #8e9894;
-  --bar-pa: #0b5f56;
+  --bar: #8f8a80;
+  --bar-pa: #b8352a;
   --tag-new-bg: #ddf1ea;
   --tag-fix-bg: #fbefd2;
   --tag-sec-bg: #fde3d3;
@@ -56,36 +57,36 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0d1413;
-    --surface: #141e1c;
-    --sunken: #1a2624;
-    --text: #e3ebe8;
-    --muted: #a5b4af;
-    --border: #2d3c39;
-    --link: #74d3c5;
-    --link-hover: #a8ebe0;
-    --brand: #3aa597;
-    --brand-deep: #8fd8cc;
-    --copper: #e3a16f;
-    --focus: #f0a96c;
-    --hero-1: #04211e;
-    --hero-2: #0c4741;
-    --hero-text: #f8f0dc;
-    --hero-muted: #bcd6cf;
-    --hero-link: #ffd2ad;
-    --btn-bg: #3aa597;
-    --btn-bg-hover: #5cc2b3;
-    --btn-text: #04211e;
-    --lv-head-1: #22302d;
-    --lv-head-2: #1a2624;
-    --lv-line: #2f3f3c;
-    --lv-alt: #172220;
-    --lv-hover: #1d3733;
-    --bevel-hi: #2f403d;
-    --bevel-lo: #070c0b;
-    --code-bg: #1d2a28;
-    --note-bg: #142b28;
-    --note-line: #3aa597;
+    --bg: #0e1420;
+    --surface: #151d2b;
+    --sunken: #1b2433;
+    --text: #ebe6dc;
+    --muted: #aab2c0;
+    --border: #2c3647;
+    --link: #9cc0ff;
+    --link-hover: #c6dbff;
+    --brand: #e0675a;
+    --brand-deep: #f2a79d;
+    --accent: #e0675a;
+    --focus: #f2c14e;
+    --hero-1: #0a1222;
+    --hero-2: #182a49;
+    --hero-text: #f7eedc;
+    --hero-muted: #c3cbd8;
+    --hero-link: #f2c14e;
+    --btn-bg: #e0675a;
+    --btn-bg-hover: #f08a7e;
+    --btn-text: #1a0d0b;
+    --lv-head-1: #222c3c;
+    --lv-head-2: #1b2433;
+    --lv-line: #2e394b;
+    --lv-alt: #182130;
+    --lv-hover: #33262c;
+    --bevel-hi: #334055;
+    --bevel-lo: #070a10;
+    --code-bg: #1d2636;
+    --note-bg: #172338;
+    --note-line: #6f8fc7;
     --warn-bg: #2b2414;
     --warn-line: #d9a441;
     --ico-teal: #51e0b2;
@@ -94,8 +95,8 @@
     --ico-amber: #ffd17a;
     --ico-orange: #ffb078;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 35%);
-    --bar: #66726f;
-    --bar-pa: #4fc4b3;
+    --bar: #6d7380;
+    --bar-pa: #e0675a;
     --tag-new-bg: #12302a;
     --tag-fix-bg: #302812;
     --tag-sec-bg: #36200f;
@@ -271,7 +272,7 @@ main { display: block; padding-bottom: 3rem; }
     radial-gradient(120% 140% at 0% 0%, rgb(255 255 255 / 9%), transparent 55%),
     linear-gradient(135deg, var(--hero-1), var(--hero-2));
   color: var(--hero-text);
-  border-bottom: 3px solid var(--copper);
+  border-bottom: 3px solid var(--accent);
 }
 .hero-in {
   display: grid;
@@ -294,7 +295,7 @@ main { display: block; padding-bottom: 3rem; }
 .page-head {
   background: linear-gradient(135deg, var(--hero-1), var(--hero-2));
   color: var(--hero-text);
-  border-bottom: 3px solid var(--copper);
+  border-bottom: 3px solid var(--accent);
   padding: 1.75rem 0 1.5rem;
 }
 .page-head h1 { color: var(--hero-text); font-size: clamp(1.8rem, 5vw, 2.4rem); margin: 0 0 .3rem; }
@@ -325,14 +326,14 @@ main { display: block; padding-bottom: 3rem; }
 .btn-primary:hover { background: var(--btn-bg-hover); color: var(--btn-text); }
 .btn-small { padding: .4rem .8rem; font-size: .95rem; }
 
-/* on the verdigris hero the main button is the icon's cream P with its copper rim */
+/* on the navy hero the main button is the stamp's paper with a kraft rim */
 .hero .btn-primary, .page-head .btn-primary {
   background: var(--cream);
-  color: #00332f;
-  border-color: #c98451;
+  color: #14233d;
+  border-color: #c4864a;
   box-shadow: 0 2px 0 rgb(0 0 0 / 25%);
 }
-.hero .btn-primary:hover, .page-head .btn-primary:hover { background: #ffffff; color: #00332f; }
+.hero .btn-primary:hover, .page-head .btn-primary:hover { background: #ffffff; color: #14233d; }
 .hero .btn-ghost { color: var(--hero-text); border-color: rgb(255 255 255 / 45%); }
 .hero .btn-ghost:hover { border-color: var(--hero-text); background: rgb(255 255 255 / 8%); color: var(--hero-text); }
 
@@ -353,7 +354,7 @@ main { display: block; padding-bottom: 3rem; }
   white-space: nowrap;
 }
 .badge-pre { background: #f7d58a; color: #3d2a00; }
-.badge-stable { background: #bfe8dc; color: #00332f; }
+.badge-stable { background: #d6e6cf; color: #1d3a12; }
 
 /* ---- sections ------------------------------------------------------------------------------ */
 

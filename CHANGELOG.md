@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_225036_1793915436: Website in the Postal Rook's colours
+
+- `site/css/style.css`: the teal and copper palette (from the Verdigris icon) becomes the stamp's: a navy hero and page heads with a stamp-red rule, red buttons, a paper-cream button with a kraft rim on the hero, gold hero links and focus ring, a pale red list hover, our benchmark bars in red; light and dark. Links stay a navy blue (red reads as an error). `--copper` is now `--accent`; every page's `theme-color` is `#14233d`.
+- Checked: every text pair at WCAG AA or better in both schemes (lowest 5.7:1, the buttons); `build.py --strict` with the test releases, the site tests, and the pages in the browser pane in light and dark (computed colours, the benchmark bars, no console errors).
+
 ## 2026-11-05_224301_1793914981: Version 1.2.3: the Postal Rook is the app icon (D60)
 
 - Family `04-postal-rook` (`assets/patina-icons/exports/app/`, built by `assets/rookparcel-icons/build.cjs`): the drawn 16 px and 20-32 px marks, and from 48 px the generated stamp the owner chose. `app-icon.txt` and the Flatpak `ICON_DIR` name it, so the Win32 and nox executables, GTK, the Web UI favicon, AppImages, macOS bundles, the Flatpak, the installer and the site all follow; D57's Verdigris is superseded.

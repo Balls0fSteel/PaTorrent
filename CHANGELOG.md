@@ -4,6 +4,15 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_105833_1793872713: Version 1.1.76: engine backlog items (fetch deadline, upload mode, web seed credentials, LSD hybrids)
+
+- **Fixed:** `http_get_to` requires a streamed body to average at least 1 KiB/s after one timeout's grace (`MIN_STREAM_RATE`), so a slow-drip server cannot hold an update or helper download open forever.
+- **Fixed (libtorrent `set_upload_mode`):** entering upload mode cancels every peer's outstanding requests (`cancel_all_requests`, also used by `snub`); leaving it clears the peers' reconnect delays. Dropping all at once, the block in flight included, is noted in PORTING.md. Wire behaviour change.
+- **Fixed:** web seed URLs with credentials show `user:***@` in the peer list, log lines and the `UrlSeed` alert text; the engine, resume data and the `WebSeeds` alert keep the real URL (PORTING.md).
+- **Fixed (libtorrent `lsd_announce`):** hybrid torrents announce both the v1 and the truncated v2 hash on LSD.
+- The SChannel stale-key test uses a per-run key name. Skipped: resetting the reconnect delay on unskip (libtorrent 2.0.11 does not either), and `hash_request_cost` (already right since 1.1.33; the BACKLOG note was stale).
+- Tests for each; clippy and all core tests pass.
+
 ## 2026-11-05_104753_1793872073: Version 1.1.75: GTK row shading, Start/Stop/Pause/Enter keys, refused Relocate shown
 
 - **GTK:** the torrent list, detail tables and RSS items shade every other row, as Win32 does: odd rows get `pa-alt` by position (bind and position changes; `nth-child` would count only rows on screen), and a CSS rule is on the display while `ui.alternate_rows` is on. UI Settings shows the box on GTK now.

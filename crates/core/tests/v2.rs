@@ -651,6 +651,60 @@ fn a_v2_magnet_of_a_hybrid_learns_its_v1_hash() {
     }
 }
 
+/// A hybrid announces both its info-hashes on local service discovery, the v1 and the
+/// truncated v2 one (libtorrent `torrent::lsd_announce`: `info_hashes().for_each`): a leech
+/// that knows the torrent by its `btmh` magnet alone hears the seed. The leech starts first,
+/// so its own announces are over before the seed listens and only the seed's can find them.
+#[test]
+fn a_hybrid_announces_both_hashes_on_local_service_discovery() {
+    let lsd_session = || {
+        Session::start(SessionParams {
+            settings: Settings { enable_lsd: true, ..settings() },
+            state_dir: None,
+            ..Default::default()
+        })
+        .expect("session starts")
+    };
+    let files = files(13);
+    let src = temp_dir("lsd-hybrid-src");
+    write_files(&files, &src);
+    let torrent = make_torrent(&src, CreateFlags::empty());
+    let ti = TorrentInfo::from_bytes(&torrent).unwrap();
+    assert!(ti.v1() && ti.v2());
+    let magnet = format!("magnet:?xt=urn:btmh:1220{}", ti.info_hashes().v2.unwrap().to_hex());
+
+    let dir = temp_dir("lsd-hybrid-leech");
+    let leech = lsd_session();
+    let mut w = Watch::new(leech.handle());
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(magnet), dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    w.h.add_torrent(p);
+    let id = wait(&mut w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
+        _ => None,
+    });
+    // the leech's announce and its two resends (2 s and 4 s later) are done
+    std::thread::sleep(Duration::from_secs(5));
+
+    let seed = lsd_session();
+    let mut sw = Watch::new(seed.handle());
+    let sid = add(&mut sw, &torrent, &src).unwrap();
+    wait_state(&mut sw, sid, TorrentState::Seeding, 20);
+    wait(&mut w, 30, "the seed's LSD announce", |a| match a {
+        Alert::LsdPeer { id: i, .. } if *i == id => Some(()),
+        Alert::MetadataReceived { id: i } if *i == id => panic!("metadata before the seed was heard"),
+        _ => None,
+    });
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&files, &dir);
+    for d in [src, dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
 /// A scripted peer on a raw TCP connection.
 struct RawPeer(std::net::TcpStream);
 

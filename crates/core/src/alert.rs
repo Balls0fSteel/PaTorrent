@@ -627,7 +627,9 @@ impl Alert {
                     (if *utp { "uTP" } else { "TCP" }, if *error { "failed" } else { "disconnected" });
                 write!(s, "peer {addr} ({over}) {how}: {reason}")
             }
-            UrlSeed { url, message, .. } => write!(s, "web seed {url}: {message}"),
+            UrlSeed { url, message, .. } => {
+                write!(s, "web seed {}: {message}", crate::util::string::redact_url_credentials(url))
+            }
             Proxy { proxy, operation, error } => {
                 write!(s, "proxy error. op: {operation:?} ec: {error} ep: {proxy}")
             }

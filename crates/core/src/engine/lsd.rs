@@ -423,8 +423,11 @@ impl Engine {
         if t.ti.as_ref().is_some_and(|ti| ti.is_private()) {
             return;
         }
-        let ih = t.info_hashes.best_v1_compatible();
-        self.lsd_send(ih, self.listen_port, 0, now);
+        // every info-hash: a hybrid's v1 and truncated v2 (libtorrent `info_hashes().for_each`)
+        let hashes: Vec<Sha1Hash> = t.info_hashes.wire_hashes().collect();
+        for ih in hashes {
+            self.lsd_send(ih, self.listen_port, 0, now);
+        }
     }
 
     /// libtorrent `lsd::announce_impl`: one packet per socket, then a resend 2 s and 4 s later.

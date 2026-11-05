@@ -700,8 +700,25 @@ impl Engine {
     /// No data from a peer with requests outstanding: hand its blocks to other peers
     /// (libtorrent `peer_connection::snub_peer` / request timeouts).
     pub(super) fn snub(&mut self, slot: usize) {
-        let (p, t) = self.peer_and_torrent(slot).expect("exists");
-        p.snubbed = true;
+        if let Some(p) = self.peers.get_mut(slot) {
+            p.snubbed = true;
+        }
+        self.cancel_all_requests(slot);
+        // Give the peer one block at a time from now on.
+        if let Some(p) = self.peers.get_mut(slot) {
+            p.last_piece = Instant::now();
+        }
+    }
+
+    /// libtorrent `peer_connection::cancel_all_requests`: cancels every outstanding request
+    /// and hands its block back to the picker. libtorrent keeps a block whose data has begun
+    /// to arrive and, with the fast extension, the rest until their rejects come; here they all
+    /// go at once, and a block the peer sends anyway is dropped as unrequested.
+    pub(super) fn cancel_all_requests(&mut self, slot: usize) {
+        let Some((p, t)) = self.peer_and_torrent(slot) else { return };
+        if p.requests.is_empty() {
+            return;
+        }
         let reqs: Vec<Request> = std::mem::take(&mut p.requests);
         for r in &reqs {
             let start = r.block * BLOCK_SIZE;
@@ -715,8 +732,6 @@ impl Engine {
                 pk.abort_download(r.piece, r.block);
             }
         }
-        // Give the peer one block at a time from now on.
-        p.last_piece = Instant::now();
         self.to_flush.push(slot);
     }
 

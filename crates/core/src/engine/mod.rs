@@ -2423,12 +2423,23 @@ impl Engine {
         if old.contains(TorrentFlags::SUPER_SEEDING) && !new.contains(TorrentFlags::SUPER_SEEDING) {
             self.superseed_end(id);
         }
-        // libtorrent `torrent::set_upload_mode`: tell every peer we are (not) interested.
+        // libtorrent `torrent::set_upload_mode`: tell every peer we are (not) interested, and
+        // entering upload mode clears every peer's outstanding requests; leaving it lets every
+        // known peer be connected again at once.
         if old.contains(TorrentFlags::UPLOAD_MODE) != new.contains(TorrentFlags::UPLOAD_MODE) {
+            let upload_mode = new.contains(TorrentFlags::UPLOAD_MODE);
+            if !upload_mode {
+                if let Some(t) = self.torrent(id) {
+                    t.peer_list.forget_last_connected();
+                }
+            }
             if let Some(t) = self.torrent_ref(id) {
                 for slot in t.peers.clone() {
                     if self.peers.get(slot).is_some_and(|p| p.state == PeerState::Active) {
                         self.update_interest(slot);
+                        if upload_mode {
+                            self.cancel_all_requests(slot);
+                        }
                     }
                 }
             }

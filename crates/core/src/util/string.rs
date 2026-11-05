@@ -320,10 +320,42 @@ pub fn same_origin(a: &str, b: &str) -> bool {
     }
 }
 
+/// `url` for display: the password of a `user:password@` userinfo replaced by `***`, and a
+/// userinfo without a colon (a token, say) replaced whole. PaTorrent's own: web seed URLs may
+/// carry credentials, which the engine keeps and uses but peer lists and logs must not show.
+/// A URL without userinfo, or text that is not a URL, comes back as it is.
+pub fn redact_url_credentials(url: &str) -> String {
+    let Some(scheme_end) = url.find("://") else { return url.to_owned() };
+    let rest_at = scheme_end + 3;
+    let rest = &url[rest_at..];
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let Some(at) = rest[..end].rfind('@') else { return url.to_owned() };
+    let shown = match rest[..at].find(':') {
+        Some(c) => format!("{}:***", &rest[..c]),
+        None => "***".to_owned(),
+    };
+    format!("{}{shown}{}", &url[..rest_at], &rest[at..])
+}
+
 #[cfg(test)]
 mod tests {
     //! Ported from libtorrent-rasterbar 2.0.11 test/test_string.cpp.
     use super::*;
+
+    #[test]
+    fn url_credentials_are_redacted_for_display() {
+        // PaTorrent's own
+        for (url, shown) in [
+            ("http://user:pass@host/", "http://user:***@host/"),
+            ("https://u:p@w@[::1]:81/dir?x=a@b", "https://u:***@[::1]:81/dir?x=a@b"),
+            ("http://token@host:8080/f", "http://***@host:8080/f"),
+            ("http://host/a@b", "http://host/a@b"),
+            ("http://host/", "http://host/"),
+            ("not a url @ all", "not a url @ all"),
+        ] {
+            assert_eq!(redact_url_credentials(url), shown, "{url}");
+        }
+    }
 
     #[test]
     fn parse_decimal_cases() {

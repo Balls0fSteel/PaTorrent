@@ -5,7 +5,8 @@
 //! not snubbed on the next tick (the request timeout runs from the request, libtorrent
 //! `m_requested`); and a choke keeps and serves the requests accepted under BEP 6 allowed-fast
 //! (libtorrent `send_choke` keeps `m_accept_fast`). Finding 18: a block of the wrong length
-//! disconnects the peer (libtorrent `verify_piece`).
+//! disconnects the peer (libtorrent `verify_piece`). Entering upload mode cancels every
+//! outstanding request (libtorrent `torrent::set_upload_mode` → `cancel_all_requests`).
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
@@ -518,6 +519,69 @@ fn a_block_of_the_wrong_length_disconnects_the_peer() {
         }
     };
     assert!(closed, "a block of the wrong length disconnects the peer");
+    drop(c);
+    session.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Backlog: requests outstanding when the torrent entered upload mode were left with the peer.
+/// libtorrent's `torrent::set_upload_mode` calls `cancel_all_requests` on every peer: each
+/// outstanding request is cancelled along with the NOT_INTERESTED, and the blocks are asked
+/// for again once upload mode is switched off.
+#[test]
+fn upload_mode_cancels_the_outstanding_requests() {
+    let f = fixture();
+    let dir = temp_dir("upload-mode-cancel");
+    let session = start();
+    let mut w = watch(&session);
+    let port = listen_port(&mut w);
+    let id = add_file(&mut w, &f, &dir);
+    status(&mut w, id, "downloading", |s| s.state == TorrentState::Downloading);
+
+    let mut c = connect(&f, port);
+    send(&mut c, HAVE_ALL, &[]);
+    while next(&mut c)[0] != INTERESTED {}
+    send(&mut c, UNCHOKE, &[]);
+    // the requests are not answered: they stay outstanding
+    let mut requested = Vec::new();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while let Some(msg) = next_until(&mut c, deadline) {
+        if msg[0] == REQUEST {
+            requested.push((field(&msg, 0), field(&msg, 1), field(&msg, 2)));
+        }
+    }
+    assert!(!requested.is_empty(), "the engine asked for blocks");
+
+    w.h.torrent(id).set_flags(TorrentFlags::UPLOAD_MODE);
+    let mut cancelled = Vec::new();
+    let mut not_interested = false;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while let Some(msg) = next_until(&mut c, deadline) {
+        match msg[0] {
+            CANCEL => cancelled.push((field(&msg, 0), field(&msg, 1), field(&msg, 2))),
+            NOT_INTERESTED => not_interested = true,
+            REQUEST => panic!("a request in upload mode"),
+            _ => {}
+        }
+    }
+    assert!(not_interested, "upload mode is not interested");
+    requested.sort_unstable();
+    cancelled.sort_unstable();
+    assert_eq!(cancelled, requested, "every outstanding request was cancelled");
+    let peers = peer_info(&mut w, id);
+    assert_eq!(peers.len(), 1);
+    assert_eq!(peers[0].download_queue_length, 0, "no request left outstanding");
+
+    // out of upload mode the blocks are asked for again
+    w.h.torrent(id).unset_flags(TorrentFlags::UPLOAD_MODE);
+    let mut again = 0;
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while let Some(msg) = next_until(&mut c, deadline) {
+        if msg[0] == REQUEST {
+            again += 1;
+        }
+    }
+    assert!(again > 0, "requests resume out of upload mode");
     drop(c);
     session.shutdown();
     let _ = std::fs::remove_dir_all(dir);

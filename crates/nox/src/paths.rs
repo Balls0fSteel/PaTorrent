@@ -189,6 +189,16 @@ fn systemd_dir(env: &impl Fn(&str) -> Option<OsString>, var: &str) -> Option<Pat
 /// one, and copies `ipfilter.dat` likewise (a `--ip-filter` path may still name the old copy).
 /// Returns the new files, as `(file, moved)` (`false`: copied).
 pub fn migrate(from: &Path, to: &Path) -> io::Result<Vec<(PathBuf, bool)>> {
+    migrate_with(from, to, |a, b| std::fs::rename(a, b), |a, b| std::fs::copy(a, b).map(drop))
+}
+
+/// [`migrate`] with the rename and copy given, so a test can fail them.
+fn migrate_with(
+    from: &Path,
+    to: &Path,
+    rename: impl Fn(&Path, &Path) -> io::Result<()>,
+    copy: impl Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<Vec<(PathBuf, bool)>> {
     let mut done = Vec::new();
     for (i, name) in MOVED.iter().enumerate() {
         let (old, new) = (from.join(name), to.join(name));
@@ -199,16 +209,36 @@ pub fn migrate(from: &Path, to: &Path) -> io::Result<Vec<(PathBuf, bool)>> {
         let moved = i == 0;
         if moved {
             // a rename across file systems fails: copy, then remove
-            if std::fs::rename(&old, &new).is_err() {
-                std::fs::copy(&old, &new)?;
+            if rename(&old, &new).is_err() {
+                copy_whole(&old, &new, &rename, &copy)?;
                 std::fs::remove_file(&old)?;
             }
         } else {
-            std::fs::copy(&old, &new)?;
+            copy_whole(&old, &new, &rename, &copy)?;
         }
         done.push((new, moved));
     }
     Ok(done)
+}
+
+/// Copies `old` to a temporary name beside `new`, then renames it to `new` (the same directory,
+/// so the rename does not cross file systems): a copy that fails midway never leaves a partial
+/// `new`, which the next start would take for the real file.
+fn copy_whole(
+    old: &Path,
+    new: &Path,
+    rename: &impl Fn(&Path, &Path) -> io::Result<()>,
+    copy: &impl Fn(&Path, &Path) -> io::Result<()>,
+) -> io::Result<()> {
+    let mut tmp_name = OsString::from(".");
+    tmp_name.push(new.file_name().unwrap_or_default());
+    tmp_name.push(".migrating");
+    let tmp = new.with_file_name(tmp_name);
+    let r = copy(old, &tmp).and_then(|()| rename(&tmp, new));
+    if r.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    r
 }
 
 #[cfg(test)]
@@ -415,6 +445,42 @@ mod tests {
         assert_eq!(std::fs::read_to_string(new.join("webui.json")).unwrap(), "{}");
         // nothing there at all
         assert!(migrate(&base.join("none"), &new).unwrap().is_empty());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_failed_cross_device_copy_leaves_no_partial_file() {
+        let base = std::env::temp_dir().join(format!("nox-paths-partial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let (old, new) = (base.join("data"), base.join("config"));
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("webui.json"), "{\"intact\":true}").unwrap();
+
+        // the first rename (old -> new) crosses file systems; the copy writes half, then fails
+        let cross_device = |a: &Path, b: &Path| {
+            if a.parent() == b.parent() {
+                std::fs::rename(a, b)
+            } else {
+                Err(io::Error::other("cross-device"))
+            }
+        };
+        let half_copy = |a: &Path, b: &Path| {
+            let data = std::fs::read(a)?;
+            std::fs::write(b, &data[..data.len() / 2])?;
+            Err(io::Error::other("disk full"))
+        };
+        assert!(migrate_with(&old, &new, cross_device, half_copy).is_err());
+        assert!(!new.join("webui.json").exists(), "no partial webui.json");
+        assert_eq!(std::fs::read_dir(&new).unwrap().count(), 0, "the temporary copy is removed");
+        assert!(old.join("webui.json").exists(), "the old file is kept");
+
+        // the next start migrates the intact file
+        let full_copy = |a: &Path, b: &Path| std::fs::copy(a, b).map(drop);
+        let done = migrate_with(&old, &new, cross_device, full_copy).unwrap();
+        assert_eq!(done, [(new.join("webui.json"), true)]);
+        assert_eq!(std::fs::read_to_string(new.join("webui.json")).unwrap(), "{\"intact\":true}");
+        assert!(!old.join("webui.json").exists());
+        assert_eq!(std::fs::read_dir(&new).unwrap().count(), 1);
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

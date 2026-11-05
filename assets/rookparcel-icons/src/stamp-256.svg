@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <title>Rookparcel</title>
+  <desc>A rook in a postal cap, a courier bag on its shoulder, carrying a parcel in its beak, on a perforated postage stamp.</desc>
+  <defs>
+    <mask id="perf">
+      <rect width="256" height="256" fill="#fff"/>
+      <g fill="#000">
+        <circle cx="16" cy="16" r="9"/><circle cx="240" cy="16" r="9"/>
+        <circle cx="16" cy="240" r="9"/><circle cx="240" cy="240" r="9"/>
+        <circle cx="48" cy="12" r="8"/><circle cx="80" cy="12" r="8"/><circle cx="112" cy="12" r="8"/><circle cx="144" cy="12" r="8"/><circle cx="176" cy="12" r="8"/><circle cx="208" cy="12" r="8"/>
+        <circle cx="48" cy="244" r="8"/><circle cx="80" cy="244" r="8"/><circle cx="112" cy="244" r="8"/><circle cx="144" cy="244" r="8"/><circle cx="176" cy="244" r="8"/><circle cx="208" cy="244" r="8"/>
+        <circle cx="12" cy="48" r="8"/><circle cx="12" cy="80" r="8"/><circle cx="12" cy="112" r="8"/><circle cx="12" cy="144" r="8"/><circle cx="12" cy="176" r="8"/><circle cx="12" cy="208" r="8"/>
+        <circle cx="244" cy="48" r="8"/><circle cx="244" cy="80" r="8"/><circle cx="244" cy="112" r="8"/><circle cx="244" cy="144" r="8"/><circle cx="244" cy="176" r="8"/><circle cx="244" cy="208" r="8"/>
+      </g>
+    </mask>
+  </defs>
+  <!-- stamp -->
+  <rect x="12" y="12" width="232" height="232" fill="#B8352A" mask="url(#perf)"/>
+  <rect x="34" y="34" width="188" height="188" rx="6" fill="#F7EEDC"/>
+  <!-- legs, walking -->
+  <g fill="#14233D">
+    <path d="M118 182 L104 210 L90 212 L90 218 L118 218 L118 212 L112 212 L126 186 Z"/>
+    <path d="M140 184 L146 210 L136 212 L136 218 L164 218 L164 212 L154 211 L148 182 Z"/>
+  </g>
+  <!-- tail and body, leaning forward -->
+  <path d="M46 204 L94 168 C86 134 110 110 146 108 C176 106 196 126 190 152 C184 178 158 194 128 194 L104 192 Z" fill="#14233D"/>
+  <!-- wing -->
+  <path d="M90 170 C104 140 132 128 160 134 C150 160 124 176 90 170 Z" fill="#273A5C"/>
+  <!-- courier bag on a strap -->
+  <path d="M154 112 L162 116 L124 176 L116 172 Z" fill="#F7EEDC"/>
+  <rect x="98" y="162" width="34" height="26" rx="3" fill="#B8352A"/>
+  <path d="M98 165 C98 162 100 162 102 162 L128 162 C130 162 132 162 132 165 L132 172 L98 172 Z" fill="#8E271F"/>
+  <circle cx="115" cy="172" r="3" fill="#F7EEDC"/>
+  <!-- head -->
+  <circle cx="164" cy="96" r="28" fill="#14233D"/>
+  <!-- parcel, gripped by its top edge -->
+  <path d="M190 112 L200 104 L228 104 L218 112 Z" fill="#DDA868"/>
+  <path d="M218 112 L228 104 L228 130 L218 138 Z" fill="#9C6630"/>
+  <rect x="190" y="112" width="28" height="26" fill="#C4864A"/>
+  <rect x="201" y="112" width="6" height="26" fill="#B8352A"/>
+  <path d="M205 104 L211 104 L201 112 L195 112 Z" fill="#B8352A"/>
+  <!-- beak, closed on the parcel -->
+  <path d="M186 84 C204 88 218 96 226 106 C212 106 198 108 186 112 Z" fill="#14233D"/>
+  <!-- the pale bare face of a rook, over the base of the beak -->
+  <path d="M174 76 C188 78 198 90 198 100 C198 110 190 117 178 120 C184 106 182 90 174 76 Z" fill="#C9CFD8"/>
+  <!-- eye -->
+  <circle cx="168" cy="90" r="5" fill="#F7EEDC"/>
+  <circle cx="169" cy="91" r="2.4" fill="#14233D"/>
+  <path d="M162 90.5 C163 84 173 83.5 174.5 89 L174.5 86 L162 86 Z" fill="#14233D"/>
+  <!-- postal cap: crown, band, badge, peak -->
+  <path d="M138 74 L133 59 C146 53 188 51 202 57 L196 74 Z" fill="#B8352A"/>
+  <rect x="136" y="72" width="60" height="7" rx="2" fill="#8E271F"/>
+  <circle cx="187" cy="65" r="4.5" fill="#F2C14E"/>
+  <path d="M188 78 L220 82 C216 89 202 90 188 86 Z" fill="#14233D"/>
+</svg>

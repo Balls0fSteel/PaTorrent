@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_223827_1793914707: Postal Rook app icon redrawn as vectors, per size
+
+- `assets/rookparcel-icons/`: the owner's chosen Postal Rook as hand-written SVG in three drawings: a pixel-by-pixel 16 px mark, a 20-32 px head close-up (cap, pale rook face, beak on a kraft parcel) and the 48-512 px stamp (walking rook, courier bag). `build.cjs` makes the PNGs and a 10-frame ICO (25 KB against the cropped candidate's 145 KB); `comparison.png` sets its real frames beside the generated candidate's. At 16-32 px the head, cap and parcel stay readable where the crops blur. Candidate only: not yet wired into the programs.
+
 ## 2026-11-05_222944_1793914184: Cropped Rookparcel ICO candidates
 
 - Exported 25 ICO files: light/dark crops of all 12 concepts plus a transparent Postal Rook stamp; matching PNGs, preview, crop coordinates, exporter and ZIP in the artwork folder. Postal Rook is the owner's favorite.

@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Rookparcel</title>
+  <desc>The rook's head in its postal cap, a parcel in its beak, on a small stamp: the small-size mark.</desc>
+  <defs>
+    <mask id="perf">
+      <rect width="32" height="32" fill="#fff"/>
+      <g fill="#000">
+        <circle cx="6.5" cy="0.6" r="1.4"/><circle cx="12.8" cy="0.6" r="1.4"/><circle cx="19.2" cy="0.6" r="1.4"/><circle cx="25.5" cy="0.6" r="1.4"/>
+        <circle cx="6.5" cy="31.4" r="1.4"/><circle cx="12.8" cy="31.4" r="1.4"/><circle cx="19.2" cy="31.4" r="1.4"/><circle cx="25.5" cy="31.4" r="1.4"/>
+        <circle cx="0.6" cy="6.5" r="1.4"/><circle cx="0.6" cy="12.8" r="1.4"/><circle cx="0.6" cy="19.2" r="1.4"/><circle cx="0.6" cy="25.5" r="1.4"/>
+        <circle cx="31.4" cy="6.5" r="1.4"/><circle cx="31.4" cy="12.8" r="1.4"/><circle cx="31.4" cy="19.2" r="1.4"/><circle cx="31.4" cy="25.5" r="1.4"/>
+      </g>
+    </mask>
+    <clipPath id="paper"><rect x="3" y="3" width="26" height="26"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="32" height="32" rx="2" fill="#B8352A" mask="url(#perf)"/>
+  <rect x="3" y="3" width="26" height="26" fill="#F7EEDC"/>
+  <g clip-path="url(#paper)">
+    <!-- shoulders -->
+    <path d="M2 30 L2 24 C4 19 9 17 14 18 L19 30 Z" fill="#14233D"/>
+    <!-- head -->
+    <circle cx="13" cy="15" r="7" fill="#14233D"/>
+    <!-- parcel -->
+    <path d="M20 17 L22 15 L28 15 L26 17 Z" fill="#DDA868"/>
+    <path d="M26 17 L28 15 L28 22 L26 24 Z" fill="#9C6630"/>
+    <rect x="20" y="17" width="6" height="7" fill="#C4864A"/>
+    <rect x="22.4" y="17" width="1.4" height="7" fill="#B8352A"/>
+    <!-- beak -->
+    <path d="M18 11.5 C22.5 12.5 26 14.5 28 17 C24 17 21 17.5 18 18.5 Z" fill="#14233D"/>
+    <!-- pale face over the base of the beak -->
+    <path d="M17 10.5 C20 11 21.5 13.5 21.5 15.5 C21.5 17.5 19.5 19 17.5 19.5 C18.5 16.5 18.5 13 17 10.5 Z" fill="#C9CFD8"/>
+    <!-- eye -->
+    <circle cx="14.5" cy="13.6" r="1.5" fill="#F7EEDC"/>
+    <circle cx="14.8" cy="13.9" r="0.75" fill="#14233D"/>
+    <path d="M12.8 13.6 C13.2 12 15.8 11.9 16.2 13.3 L16.2 12 L12.8 12 Z" fill="#14233D"/>
+    <!-- cap -->
+    <path d="M7 9.5 L6 5.5 C9 4.3 18 4 21 5.2 L20 9.5 Z" fill="#B8352A"/>
+    <rect x="6.5" y="9" width="14" height="1.8" fill="#8E271F"/>
+    <circle cx="17" cy="7" r="1.2" fill="#F2C14E"/>
+    <path d="M19 10.4 L25 11 C24 12.4 21.5 12.6 19 12.2 Z" fill="#14233D"/>
+  </g>
+</svg>

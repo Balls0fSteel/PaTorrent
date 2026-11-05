@@ -8,7 +8,8 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 
 - **1.2.0** ships 1.1.41-1.1.78 (D58): profiles and portable mode everywhere (D42), the Files filter (D50), the search helper (D51), the Setup Guide (D53), "Use only this network" (D54), help texts (D55), the 2026-11-05 bug hunt (37 of 38 fixed, one ruled out) and the backlog fixes. Release notes: [docs/releases/1.2.0.md](docs/releases/1.2.0.md); Flatpak metainfo `<release>` added.
 - Version bumped to 1.2.0. Peer ID `-PA1013-` (owner, 2026-11-05_183712_1793900232) for the wire changes of 1.1.66, 1.1.70, 1.1.74 and 1.1.76. The remote protocol is 15 (14 since 1.1.58, 15 since 1.1.70).
-- The website entry (the FAQ and download text from `site-profiles` plus a `site/news.html` entry) waits on a branch until the release is published.
+- **Published 2026-11-05_204405_1793907845:** CI, FreeBSD and Fuzz green on 8e613e30 (one fuzz job hung in the runner's `apt-get` and was rerun); the draft's 14 files built, checksums and `patorrent-nox --version` checked, the text matches the notes. The website (FAQ and download text from `site-profiles`, the `site/news.html` entry) went out right after; `update.txt` says `stable=1.2.0`.
+- **Issue:** macOS CI on the website push failed `parallel_guesses_stop_at_the_ban_limit`: a guess banned between `login`'s ban check and `check_login`'s is refused but answered "Fails.". The ban holds; logged in BACKLOG "Validation" with the fix.
 
 ## 2026-11-05_152743_1793888863: Version 1.1.78: search hash check, folder case, Web UI private flag and queue order, RSS read marks, unknown sizes, help texts
 

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-11-05_183712_1793900232
+Last updated: 2026-11-05_204405_1793907845
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D58](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -23,7 +23,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
 - **1.1.17** (2026-10-30, [notes](docs/releases/1.1.17.md)): Torznab search, RSS in the hosted Web UI, nox's update check; the website's News page.
 - **1.1.40 is published, Latest** (2026-11-03, tag `v1.1.40`, [notes](docs/releases/1.1.40.md); peer ID `-PA1012-`, remote protocol 13): keep ping low (D49), smart disk I/O (D48), the closing window (D47), the Windows self-update (D44-D45) and the libtorrent 2.0.12-2.1.2 fixes; `update.txt` serves `stable=1.1.40`.
-- **1.2.0** (1.1.41-1.1.78, tagged 2026-11-05; [notes](docs/releases/1.2.0.md)): selected-files progress for stopped torrents; the closing window's timing and size; profiles and portable mode (D42); D50-D55; the bug hunt and backlog fixes. CHANGELOG and its archive.
+- **1.2.0** (1.1.41-1.1.78, published 2026-11-05; [notes](docs/releases/1.2.0.md)): selected-files progress for stopped torrents; the closing window's timing and size; profiles and portable mode (D42); D50-D55; the bug hunt and backlog fixes. CHANGELOG and its archive.
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.

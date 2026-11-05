@@ -958,6 +958,13 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 
 ## Validation and development environment
 
+- **Web UI login answers "Fails." to a client banned meanwhile** (macOS CI, 2026-11-05_204405_1793907845,
+  `parallel_guesses_stop_at_the_ban_limit` saw 6 of 20 parallel guesses answered "Fails.").
+  `login` (`crates/nox/src/webui/api.rs`) checks the ban, then `check_login` takes the lock
+  again; a request banned between the two is refused there without its password being tried,
+  but `check_login` returns plain `false` and `login` answers "Fails." instead of 403
+  `BANNED`. The ban holds (only 5 hashes ran); the answer and the test's count are wrong. Fix:
+  let `check_login` tell "banned" apart (also for `remote.rs`), so the test counts true checks.
 - The remaining 100k measurements are a low-end 2-core/4 GB/HDD machine on
   Windows/light Linux, GTK using the compact model, Web UI per-client models,
   idle CPU and responsiveness there, and deleting 1,000 torrents at once

@@ -1,20 +1,28 @@
-// Builds the Rookparcel app icon from its three drawings (D59):
+// Builds the Rookparcel app icon, family 04-postal-rook (D59), from three sources:
 //   16 px         src/mark-16.svg   (drawn pixel by pixel: src/mark-16.txt, pixelmap.py)
 //   20-32 px      src/mark-32.svg   (the head close-up)
-//   48-512 px     src/stamp-256.svg (the full stamp)
-// into exports/<size>.png and exports/rookparcel.ico (16-256 px PNG frames).
+//   48-512 px     src/stamp-512.png (the generated Postal Rook stamp the owner chose for the
+//                 large sizes, docs/art/rookparcel-candidates-2026-11-05)
+// into ../patina-icons/exports/app/04-postal-rook/<size>.png and 04-postal-rook.ico, where every
+// program and package reads the family ../patina-icons/app-icon.txt names
+// (../patina-icons/INTEGRATION.md). src/stamp-256.svg is the vector stamp kept as an alternative.
 //   SHARP=<path to sharp> node build.cjs
 const fs = require('fs');
 const path = require('path');
 const sharp = require(process.env.SHARP || 'sharp');
 
 const root = __dirname;
-const SOURCE = (size) => (size <= 16 ? 'mark-16.svg' : size <= 32 ? 'mark-32.svg' : 'stamp-256.svg');
-const PNG_SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256, 512];
-const ICO_SIZES = [16, 20, 24, 32, 40, 48, 64, 96, 128, 256];
+const FAMILY = '04-postal-rook';
+const SOURCE = (size) => (size <= 16 ? 'mark-16.svg' : size <= 32 ? 'mark-32.svg' : 'stamp-512.png');
+// as ../patina-icons/manifest.json's appPngSizes and the ICO frames crates/win32/build.rs embeds
+const PNG_SIZES = [16, 20, 24, 32, 48, 64, 128, 256, 512];
+const ICO_SIZES = [16, 20, 24, 32, 48, 64, 128, 256];
 
 async function render(size) {
   const file = path.join(root, 'src', SOURCE(size));
+  if (file.endsWith('.png')) {
+    return sharp(file).resize(size, size, { kernel: 'lanczos3' }).png().toBuffer();
+  }
   const box = Number(fs.readFileSync(file, 'utf8').match(/viewBox="0 0 (\d+)/)[1]);
   // drawn at its own size: exact pixels; otherwise rendered large and reduced
   const density = box === size ? 72 : Math.max(72, (72 * size * 2) / box);
@@ -41,17 +49,21 @@ function ico(frames) {
 }
 
 (async () => {
-  const out = path.join(root, 'exports');
+  const app = path.join(root, '..', 'patina-icons', 'exports', 'app');
+  const out = path.join(app, FAMILY);
   fs.mkdirSync(out, { recursive: true });
   const frames = [];
   for (const size of PNG_SIZES) {
-    const png = await render(size);
+    // 8-bit RGBA, as icons::app_png promises
+    const png = await sharp(await render(size)).ensureAlpha().png({ palette: false }).toBuffer();
     const meta = await sharp(png).metadata();
-    if (meta.width !== size || meta.height !== size || !meta.hasAlpha) throw Error(`${size}: bad render`);
+    if (meta.width !== size || meta.height !== size || meta.channels !== 4 || meta.depth !== 'uchar') {
+      throw Error(`${size}: not ${size}x${size} 8-bit RGBA`);
+    }
     fs.writeFileSync(path.join(out, `${size}.png`), png);
     if (ICO_SIZES.includes(size)) frames.push({ size, png });
   }
   const data = ico(frames);
-  fs.writeFileSync(path.join(out, 'rookparcel.ico'), data);
-  console.log(`exports: ${PNG_SIZES.length} PNGs, rookparcel.ico ${ICO_SIZES.length} frames, ${data.length} bytes`);
+  fs.writeFileSync(path.join(app, `${FAMILY}.ico`), data);
+  console.log(`${FAMILY}: ${PNG_SIZES.length} PNGs, ${FAMILY}.ico with ${ICO_SIZES.length} frames, ${data.length} bytes`);
 })();

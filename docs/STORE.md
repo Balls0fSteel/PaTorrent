@@ -47,7 +47,7 @@ Less work in the app (D45 stays, no package behaviour to check), but it needs th
 - **Q3.** Individual or company account (both free now; a company account shows a company name as the publisher, "DukeCorp1996")?
 - **Q4.** Should the Store build share `%APPDATA%\Rookparcel` with a setup-installed copy, or keep its own settings?
 - **Q5.** Which markets and languages at launch?
-- **Q6.** Final brand: the provisional Verdigris icon becomes the Store icon, which is awkward to change once the listing has users.
+- **Q6.** Final brand: the Postal Rook (D60, superseding the Verdigris of D57) becomes the Store icon, which is awkward to change once the listing has users.
 
 ## Sources (checked 2026-11-01)
 

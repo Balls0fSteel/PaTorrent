@@ -55,7 +55,7 @@ modules:
         # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
         # item 10). Must name the family in assets/patina-icons/app-icon.txt (a manifest cannot
         # read a file): the release workflow's flatpak job fails when they differ.
-        ICON_DIR: assets/patina-icons/exports/app/01-verdigris
+        ICON_DIR: assets/patina-icons/exports/app/04-postal-rook
     build-commands:
       - cargo --offline build --release --locked -p rookparcel-gtk
       - install -Dm755 target/release/rookparcel-gtk /app/bin/rookparcel-gtk

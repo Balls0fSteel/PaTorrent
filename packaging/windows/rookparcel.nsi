@@ -3,7 +3,7 @@
 ; from the release executables beside the portable zip (docs/RELEASING.md):
 ;
 ;   makensis /DVERSION=1.0.0-rc.1 /DBINDIR=target\release
-;     /DICON=assets\patina-icons\exports\app\01-verdigris.ico
+;     /DICON=assets\patina-icons\exports\app\04-postal-rook.ico
 ;     /DOUTFILE=rookparcel-1.0.0-rc.1-windows-x64-setup.exe packaging\windows\rookparcel.nsi
 ;
 ; - For one user (the default) it installs into %LOCALAPPDATA%\Programs\Rookparcel without

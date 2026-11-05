@@ -70,6 +70,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.2.0" date="2026-11-05" type="stable">
+      <description>
+        <p>Profiles run several independent PaTorrents side by side, and portable mode keeps one in a folder that can move between drives and systems. A Setup Guide at the first start, help for every setting, a filter in the Files tab, binding torrent traffic to a VPN, and an optional search helper that fetches Jackett for you are new. A bug hunt fixed 37 problems, among them a Web UI login bypass and a peer message that crashed the engine.</p>
+      </description>
+    </release>
     <release version="1.1.40" date="2026-11-03" type="stable">
       <description>
         <p>A gamer mode keeps your ping low by slowing transfers down when your line starts to queue. Smart disk I/O checks torrents gently, one per drive, tells SSDs, hard disks and network shares apart, and can slow down while a disk is busy. A window shows what PaTorrent is doing while it closes, the Files tab has µTorrent 2.2.1's menu, completed downloads can move into a folder named after their label, and the engine carries the applicable fixes from libtorrent 2.0.12 to 2.1.2.</p>

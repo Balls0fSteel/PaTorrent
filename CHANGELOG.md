@@ -12,6 +12,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - Serbian mnemonic fixed; help texts corrected (Hashing threads says it is not used); PORTING.md rows added.
 - Clippy, frontend (288) and nox tests pass, one thread at Idle priority. BACKLOG drops the items closed in 1.1.75-1.1.78.
 - **Validated (2026-11-05_152743_1793888863):** on the Xubuntu VM, `patorrent-gtk` passes stable clippy and its 31 tests, so the GTK changes of 1.1.75 and 1.1.77 build on Linux (not run in a GTK session). PLAN trimmed under 16 KiB.
+- **CI fix (test only, no bump):** macOS CI failed `a_body_streams_to_the_sink` with `TimedOut`: its 12-byte body could not earn time against 1.1.76's `MIN_STREAM_RATE`, so it passed only if the whole body came within the 1.5 s grace. It now sends three 2 KiB pieces 1 s apart (each earns 2 s), and checks again that the body outlasts one timeout.
 
 ## 2026-11-05_152150_1793888510: Version 1.1.77: update folder, update URL overrides, tray Show, private DHT/PEX, "Restoring torrents...", scrapes logged
 

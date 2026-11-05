@@ -816,14 +816,19 @@ mod tests {
     fn a_body_streams_to_the_sink() {
         let l = TcpListener::bind("127.0.0.1:0").unwrap();
         let base = format!("http://{}", l.local_addr().unwrap());
+        // three 2 KiB pieces 1 s apart: the whole body takes longer than the 1.5 s timeout, and
+        // each piece earns 2 s at MIN_STREAM_RATE, so a slow machine has seconds to spare
+        const PIECE: usize = 2048;
+        let body: Vec<u8> = (0..3 * PIECE).map(|i| b'a' + (i / PIECE) as u8).collect();
+        let sent = body.clone();
         thread::spawn(move || {
-            // 2 s between the pieces: longer than the timeout, shorter than three of them
             let (mut s, _) = l.accept().unwrap();
             read_head(&mut s);
-            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nabcd").unwrap();
-            for piece in [&b"efgh"[..], b"ijkl"] {
-                thread::sleep(Duration::from_millis(700));
+            s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", 3 * PIECE).as_bytes())
+                .unwrap();
+            for piece in sent.chunks(PIECE) {
                 s.write_all(piece).unwrap();
+                thread::sleep(Duration::from_millis(1000));
             }
             let (mut s, _) = l.accept().unwrap();
             read_head(&mut s);
@@ -839,6 +844,7 @@ mod tests {
         let o = FetchOptions { timeout: Duration::from_millis(1500), ..opts() };
         let mut got = Vec::new();
         let mut pieces = Vec::new();
+        let t = Instant::now();
         let r = http_get_to(&base, &o, &mut |total, data| {
             pieces.push((total, data.len()));
             got.extend_from_slice(data);
@@ -846,8 +852,11 @@ mod tests {
         })
         .unwrap();
         assert!(r.status == 200 && r.body.is_empty());
-        assert_eq!(got, b"abcdefghijkl");
-        assert_eq!(pieces, vec![(Some(12), 4), (Some(12), 4), (Some(12), 4)]);
+        assert!(t.elapsed() > o.timeout, "the body outlasted one timeout");
+        assert_eq!(got, body);
+        // read by read as it arrived (a piece may come in more than one read), with the length
+        assert!(pieces.len() >= 3, "{pieces:?}");
+        assert!(pieces.iter().all(|&(total, n)| total == Some(3 * PIECE as u64) && n > 0), "{pieces:?}");
         // chunked: decoded whole, then handed over
         let mut got = Vec::new();
         let mut calls = 0;

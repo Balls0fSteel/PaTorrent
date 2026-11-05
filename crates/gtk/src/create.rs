@@ -385,6 +385,7 @@ impl Dialog {
         self.set_busy(true);
         let shared = Arc::new(Mutex::new(Progress::default()));
         let (cancel, report) = (self.cancel.clone(), shared.clone());
+        let written = file.clone();
         std::thread::spawn(move || {
             let result = create::build(&opts, &mut |done, total| {
                 if let Ok(mut p) = report.lock() {
@@ -412,7 +413,7 @@ impl Dialog {
             d.progress.set_text(Some(&format!("{:.1} %", fraction * 100.0)));
             match result {
                 Some(r) => {
-                    d.finished(r);
+                    d.finished(r, &written);
                     glib::ControlFlow::Break
                 }
                 None => glib::ControlFlow::Continue,
@@ -448,8 +449,17 @@ impl Dialog {
         }
     }
 
-    fn finished(&self, result: Result<Created, String>) {
+    /// The worker's end. A close (Cancel) that came while it wrote its last piece discards the
+    /// torrent: the file it wrote is removed and nothing is added.
+    fn finished(&self, result: Result<Created, String>, file: &Path) {
         self.set_busy(false);
+        let result = match result {
+            Ok(_) if self.closing.get() => {
+                let _ = std::fs::remove_file(file);
+                Err("cancelled".to_owned())
+            }
+            r => r,
+        };
         match result {
             Ok(created) => {
                 *self.created.borrow_mut() = Some(created);

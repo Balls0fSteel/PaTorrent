@@ -4,6 +4,15 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_101942_1793870382: Version 1.1.72: the bug hunt's nox, frontend and GTK low findings fixed (30-33, 37)
+
+- **Fixed, GTK (30):** a Cancel that arrives while Create New Torrent's worker finishes discards the result and removes the written .torrent instead of seeding it. Read only on Windows; compiled on the Xubuntu VM with the rest (below).
+- **Fixed, nox (31):** a named-profile Windows service fixes its profile from its options before resolving its directories (`service::prepare_with`), so it no longer runs as the default profile.
+- **Fixed, frontend (32):** `Prefs::set_sort(None)` goes through the change journal, so the D40 mirror no longer keeps a stale `list.sort`.
+- **Fixed, nox (33):** `paths::migrate` copies across file systems to a temporary name and renames it, so a failed copy leaves no partial `webui.json`.
+- **Fixed, Web UI (37):** the ban list forgets a failure count whose last failure is older than the ban duration (at least 60 s). qBittorrent has no decay; the rule is ours.
+- Tests for 31, 32, 33 and 37; clippy and the nox and frontend tests pass.
+
 ## 2026-11-05_101739_1793870259: Version 1.1.71: the bug hunt's Win32 low findings fixed (26-29)
 
 - **Fixed (26):** a saved window rectangle whose title bar is on no monitor (one was unplugged) is moved, and shrunk where larger, into the nearest monitor's work area (`fit_rect`).

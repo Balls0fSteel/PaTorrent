@@ -126,10 +126,24 @@ impl std::fmt::Display for PasswordHash {
 /// host given a /64 can pick any address in it (privacy addresses, or on purpose) and would
 /// otherwise get a fresh count with each one. qBittorrent bans per address; the /64 is ours
 /// (security review, 2026-10-22).
+///
+/// qBittorrent's count lasts until a ban or a good login; here a count also lapses when the
+/// client's last failure is older than the ban duration (at least [`MIN_FAIL_WINDOW`]), so
+/// sparse typos over days do not add up to a ban (bug hunt 2026-11-05, 37).
 #[derive(Default)]
 pub struct BanList {
-    entries: HashMap<IpAddr, (u32, Option<Instant>)>,
+    /// The failures, the last failure's time and the end of the ban, per client.
+    entries: HashMap<IpAddr, Failures>,
 }
+
+struct Failures {
+    count: u32,
+    last: Instant,
+    until: Option<Instant>,
+}
+
+/// The shortest time a failure is remembered, for a ban duration of zero or a few seconds.
+pub const MIN_FAIL_WINDOW: Duration = Duration::from_secs(60);
 
 /// What a client's failures are counted under: an IPv4 address (IPv4-mapped IPv6 included) as
 /// is, an IPv6 address with its last 64 bits cleared.
@@ -143,9 +157,9 @@ pub(crate) fn ban_key(ip: IpAddr) -> IpAddr {
 impl BanList {
     pub fn is_banned(&mut self, ip: IpAddr, now: Instant) -> bool {
         let ip = ban_key(ip);
-        match self.entries.get(&ip) {
-            Some((_, Some(until))) if *until > now => true,
-            Some((_, Some(_))) => {
+        match self.entries.get(&ip).map(|f| f.until) {
+            Some(Some(until)) if until > now => true,
+            Some(Some(_)) => {
                 self.entries.remove(&ip);
                 false
             }
@@ -153,17 +167,24 @@ impl BanList {
         }
     }
 
-    /// Counts a failure; true when this one got the client banned.
+    /// Counts a failure; true when this one got the client banned. A count whose last failure
+    /// is older than `ban` (at least [`MIN_FAIL_WINDOW`]) starts again from this one.
     pub fn failed(&mut self, ip: IpAddr, max_fails: u32, ban: Duration, now: Instant) -> bool {
         let ip = ban_key(ip);
+        let window = ban.max(MIN_FAIL_WINDOW);
+        let lapsed = |f: &Failures| f.until.is_none() && now.saturating_duration_since(f.last) >= window;
         if self.entries.len() > 10_000 {
             // Bounded: forget addresses that are not banned.
-            self.entries.retain(|_, (_, until)| until.is_some_and(|u| u > now));
+            self.entries.retain(|_, f| f.until.is_some_and(|u| u > now));
         }
-        let e = self.entries.entry(ip).or_insert((0, None));
-        e.0 += 1;
-        if max_fails > 0 && e.0 >= max_fails {
-            e.1 = Some(now + ban);
+        let e = self.entries.entry(ip).or_insert(Failures { count: 0, last: now, until: None });
+        if lapsed(e) {
+            e.count = 0;
+        }
+        e.count += 1;
+        e.last = now;
+        if max_fails > 0 && e.count >= max_fails {
+            e.until = Some(now + ban);
             return true;
         }
         false
@@ -374,6 +395,28 @@ mod tests {
         assert!(b.is_banned(ip, t + Duration::from_secs(59)));
         assert!(!b.is_banned("10.0.0.2".parse().unwrap(), t));
         assert!(!b.is_banned(ip, t + Duration::from_secs(61)));
+    }
+
+    /// Bug hunt 2026-11-05, 37: failures further apart than the ban duration do not add up.
+    #[test]
+    fn sparse_failures_lapse() {
+        let mut b = BanList::default();
+        let ip: IpAddr = "10.0.0.1".parse().unwrap();
+        let t = Instant::now();
+        let ban = Duration::from_secs(3600);
+        let hour = Duration::from_secs(3600);
+        // one typo a day for a week: never banned
+        for day in 0..7u32 {
+            assert!(!b.failed(ip, 2, ban, t + day * 24 * hour), "day {day}");
+        }
+        // two within the window still ban
+        let s = t + 8 * 24 * hour;
+        assert!(!b.failed(ip, 2, ban, s));
+        assert!(b.failed(ip, 2, ban, s + hour - Duration::from_secs(1)));
+        // a short ban duration still remembers a failure for a minute
+        let ip2: IpAddr = "10.0.0.2".parse().unwrap();
+        assert!(!b.failed(ip2, 2, Duration::ZERO, t));
+        assert!(b.failed(ip2, 2, Duration::ZERO, t + Duration::from_secs(59)));
     }
 
     /// Security review 2026-10-22: an IPv6 client moving within its /64 keeps its count and its

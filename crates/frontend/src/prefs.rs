@@ -275,9 +275,7 @@ impl Prefs {
             Some((c, desc)) => {
                 self.set("list.sort", format!("{}:{}", c.key(), if desc { "desc" } else { "asc" }))
             }
-            None => {
-                self.values.remove("list.sort");
-            }
+            None => self.remove("list.sort"),
         }
     }
 }
@@ -457,6 +455,20 @@ x=1
         assert_eq!(p.sort(), Some((Column::DownSpeed, true)));
         p.set_sort(None);
         assert_eq!(p.sort(), None);
+    }
+
+    #[test]
+    fn clearing_the_sort_is_journaled() {
+        let mut p = Prefs::default();
+        p.track_changes();
+        p.set_sort(Some((Column::Name, false)));
+        p.set_sort(None);
+        let changes = p.take_changes();
+        assert_eq!(changes.last(), Some(&("list.sort".to_owned(), None)));
+        let mut mirror = Prefs::default();
+        mirror.set_sort(Some((Column::Name, false)));
+        mirror.apply_changes(&changes);
+        assert_eq!(mirror.sort(), None);
     }
 
     #[test]

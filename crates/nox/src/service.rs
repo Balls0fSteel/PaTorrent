@@ -1625,7 +1625,21 @@ fn serve(scm: Box<dyn Scm>, args: &[String], service: bool) -> u32 {
 /// `run`'s options for the service: `--log` defaults to `nox.log` in the state directory (a
 /// service has no console), and the log must open.
 fn prepare(args: &[String], service: bool) -> Result<crate::Opts, (u32, String)> {
+    prepare_with(args, service, |name| {
+        patorrent_frontend::profile::init(name);
+    })
+}
+
+/// [`prepare`] with the profile's `init` given (a test cannot fix the process's profile). The
+/// profile is fixed from the options first: `paths::resolve` reads `profile::current()`, which
+/// would otherwise fix the default profile for the process before `run` names the right one.
+fn prepare_with(
+    args: &[String],
+    service: bool,
+    init: impl FnOnce(Option<String>),
+) -> Result<crate::Opts, (u32, String)> {
     let mut o = crate::parse(args).map_err(|e| (EXIT_ARGS, e))?;
+    init(o.profile.clone());
     if service && o.service.log.is_none() {
         let state = crate::paths::resolve(o.state.clone(), o.config_dir.clone(), o.profile.as_deref())
             .state
@@ -2257,6 +2271,29 @@ mod tests {
             .err()
             .unwrap();
         assert_eq!(e.0, EXIT_LOG);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// Bug hunt 2026-11-05, 31: the service fixes its named profile before resolving its
+    /// directories (which would fix the default one for the process).
+    #[test]
+    fn the_service_fixes_its_named_profile_first() {
+        let base = std::env::temp_dir().join(format!("nox-service-profile-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let state = base.join("state");
+        let mut fixed = None;
+        let o = prepare_with(
+            &args(&["--profile", "work", "--state-dir", &state.to_string_lossy()]),
+            true,
+            |name| fixed = Some(name),
+        )
+        .unwrap();
+        assert_eq!(fixed, Some(Some("work".to_owned())));
+        assert_eq!(o.profile.as_deref(), Some("work"));
+        let mut fixed = None;
+        prepare_with(&args(&["--state-dir", &state.to_string_lossy()]), true, |name| fixed = Some(name))
+            .unwrap();
+        assert_eq!(fixed, Some(None));
         std::fs::remove_dir_all(&base).unwrap();
     }
 }

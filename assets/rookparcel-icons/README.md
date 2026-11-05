@@ -17,7 +17,7 @@ alternative for the large sizes (`preview-512.png`).
 
 Build (sharp, as the other icon tools; on this PC under Strata's harness):
 
-    python pixelmap.py src/mark-16.txt src/mark-16.svg
+    python pixelmap.py src/courier-16.txt src/courier-16.svg
     SHARP=<path to sharp> node build.cjs
 
 It writes the family `04-postal-rook` into `../patina-icons/exports/app/` (PNGs at 16-512 px and an

@@ -16,7 +16,9 @@
 //!
 //! [`http_get_to`] is the same `GET` for a file too big to hold, such as a new version's setup
 //! (D45): the final answer's body goes to a [`Sink`] as it arrives, and the timeout then runs
-//! between reads instead of over the whole exchange.
+//! between reads instead of over the whole exchange. A body that drips in slower than
+//! [`MIN_STREAM_RATE`] on average (after one timeout's grace) times out all the same, so a
+//! server cannot hold the download open forever a byte at a time.
 //!
 //! Call them from a worker thread: they block for up to the timeout.
 
@@ -33,6 +35,12 @@ use crate::proto::proxy::Target;
 use crate::settings::{ProxyType, Settings};
 use crate::util::gzip::{GzipError, inflate_gzip};
 use crate::util::puff::InflateError;
+
+/// The slowest average rate, in bytes a second, at which a body streamed by [`http_get_to`]
+/// may arrive: once the head is in, the body has one [`FetchOptions::timeout`] plus a second
+/// for every this many bytes received. With the size limit this also bounds the whole download
+/// (a 256 MiB body: about three days at the very most).
+pub const MIN_STREAM_RATE: u64 = 1024;
 
 /// What [`http_get`] does; [`FetchOptions::default`] suits `.torrent` files and feeds.
 #[derive(Clone, Debug)]
@@ -276,7 +284,8 @@ pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchEr
 /// [`http_get`] with the 2xx answer's body handed to `sink` instead of returned (the answer's
 /// `body` is empty). A body with `Content-Length`, or one the end of the connection frames,
 /// goes to the sink read by read, under [`FetchOptions::max_size`] all the same, with
-/// [`FetchOptions::timeout`] between reads once the head is in; a chunked body is decoded
+/// [`FetchOptions::timeout`] between reads once the head is in and, after that much grace, at
+/// least [`MIN_STREAM_RATE`] on average; a chunked body is decoded
 /// whole first, as [`http_get`] has it, then handed over in one piece. The body is as sent
 /// (no gzip is asked for, whatever [`FetchOptions::gzip`] says).
 pub fn http_get_to(url: &str, opts: &FetchOptions, sink: Sink<'_>) -> Result<FetchResponse, FetchError> {
@@ -602,9 +611,13 @@ fn exchange<S: Read + Write>(
     // keeps its place across reads, so a chunked body is decoded once, not after every read;
     // the head comes from the lenient parser below, this one decodes the body
     let mut parser = http::ResponseParser::new(max);
+    // when the body began to stream: the slow-drip bound (MIN_STREAM_RATE) counts from there
+    let mut stream_start: Option<Instant> = None;
     let result = loop {
         if streaming.is_some() {
-            deadline = Instant::now() + idle;
+            let start = *stream_start.get_or_insert_with(Instant::now);
+            let earned = Duration::from_secs_f64(streamed as f64 / MIN_STREAM_RATE as f64);
+            deadline = (Instant::now() + idle).min(start + idle + earned);
         }
         set_timeouts(sock(&mut s), deadline)?;
         let n = match s.read(&mut chunk) {
@@ -851,6 +864,40 @@ mod tests {
             http_get_to(&base, &o, &mut |_, _| Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")))
                 .unwrap_err();
         assert!(matches!(e, FetchError::Io(ref e) if e.to_string() == "cancelled"), "{e}");
+    }
+
+    /// `http_get_to`: a server that sends a byte well within every read's timeout but far
+    /// below `MIN_STREAM_RATE` cannot hold the download open; it times out soon after the
+    /// grace of one timeout.
+    #[test]
+    fn a_slow_drip_body_times_out() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        thread::spawn(move || {
+            let (mut s, _) = l.accept().unwrap();
+            read_head(&mut s);
+            if s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\nx").is_err() {
+                return;
+            }
+            for _ in 0..100 {
+                thread::sleep(Duration::from_millis(150));
+                if s.write_all(b"x").is_err() {
+                    return;
+                }
+            }
+        });
+        let o = FetchOptions { timeout: Duration::from_millis(1000), ..opts() };
+        let t = Instant::now();
+        let mut got = 0;
+        let e = http_get_to(&base, &o, &mut |_, data| {
+            got += data.len();
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(matches!(e, FetchError::TimedOut), "{e}");
+        let took = t.elapsed();
+        assert!(took >= Duration::from_millis(900) && took < Duration::from_secs(4), "{took:?}");
+        assert!(got > 1 && got < 30, "{got} bytes");
     }
 
     /// `http_get_to` hands the sink no more than the body: not the bytes after its

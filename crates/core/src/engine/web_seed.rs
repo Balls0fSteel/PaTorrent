@@ -48,7 +48,7 @@ use crate::status::{PeerFlags, PeerInfo, PeerSource};
 use crate::types::TorrentId;
 use crate::util::bitfield::Bitfield;
 use crate::util::stat::Stat;
-use crate::util::string::{parse_url_components, same_origin};
+use crate::util::string::{parse_url_components, redact_url_credentials, same_origin};
 
 /// Reactor tokens of web seed connections.
 pub(crate) const WEB_TOKEN_BASE: usize = 0x6000_0000;
@@ -375,7 +375,8 @@ impl Engine {
 
     fn url_seed_alert(&mut self, id: TorrentId, url: &str, message: impl Into<String>) {
         let message = message.into();
-        self.alert(Alert::Log { id: Some(id), message: format!("web seed {url}: {message}") });
+        let shown = redact_url_credentials(url);
+        self.alert(Alert::Log { id: Some(id), message: format!("web seed {shown}: {message}") });
         self.alert(Alert::UrlSeed { id, url: url.to_owned(), message });
     }
 
@@ -752,7 +753,7 @@ impl Engine {
         t.status_dirty = true;
         self.alert(Alert::Log {
             id: Some(id),
-            message: format!("web seed connection started: [{addr}] {url}"),
+            message: format!("web seed connection started: [{addr}] {}", redact_url_credentials(&url)),
         });
     }
 
@@ -1334,7 +1335,8 @@ impl Engine {
             t.redundant_bytes += wasted;
         }
         let id = c.torrent;
-        self.alert(Alert::Log { id: Some(id), message: format!("web seed {url} [{}]: {reason}", c.addr) });
+        let shown = redact_url_credentials(&url);
+        self.alert(Alert::Log { id: Some(id), message: format!("web seed {shown} [{}]: {reason}", c.addr) });
     }
 
     /// Closes a torrent's web seed connections (the torrent stopped or finished).
@@ -1493,7 +1495,8 @@ impl Engine {
         if let Some(slot) = conn {
             self.remove_web_conn(slot, &format!("banned: {reason}"), Close::Failure);
         }
-        self.alert(Alert::Log { id: Some(id), message: format!("banning web seed {url}: {reason}") });
+        let shown = redact_url_credentials(&url);
+        self.alert(Alert::Log { id: Some(id), message: format!("banning web seed {shown}: {reason}") });
         if let Some(addr) = addr {
             self.alert(Alert::PeerBanned { id, addr, peer_id: [0; 20] });
         }
@@ -1535,7 +1538,8 @@ impl Engine {
                 upload_queue_length: 0,
                 num_hashfails: trust.hashfails as u32,
                 is_web_seed: true,
-                url: seed.map(|w| w.url.clone()),
+                // for display: the engine keeps and uses the credentials, the Peers tab hides them
+                url: seed.map(|w| redact_url_credentials(&w.url)),
             });
         }
         out

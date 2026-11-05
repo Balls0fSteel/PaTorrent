@@ -788,15 +788,20 @@ fn bep17_http_seed() {
 #[test]
 fn web_seeds_show_in_the_peer_list() {
     // a slow server: each response waits, so the connection is there to be seen
+    // with credentials in the URL: they are sent, but the peer list shows them redacted
     let f = fixture("slow.bin", &[("slow.bin", 400_000)], &[], &[]);
     let file = f.files[0].1.clone();
-    let srv = server(Mode::Plain, move |_| {
+    let auths = Arc::new(Mutex::new(Vec::new()));
+    let seen = auths.clone();
+    let srv = server(Mode::Plain, move |r| {
+        seen.lock().unwrap().push(r.auth.clone());
         std::thread::sleep(Duration::from_millis(150));
         Reply::File(file.clone())
     });
     let dir = temp_dir("peers");
     let mut w = Watch::start(settings());
-    let id = w.add(&f, &dir, &[srv.url("/slow.bin")]);
+    let with_creds = srv.url("/slow.bin").replacen("http://", "http://user:s3cret@", 1);
+    let id = w.add(&f, &dir, std::slice::from_ref(&with_creds));
     let deadline = Instant::now() + Duration::from_secs(20);
     let peer = loop {
         w.h.torrent(id).post_peer_info();
@@ -811,7 +816,15 @@ fn web_seeds_show_in_the_peer_list() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(peer.ip, srv.addr);
-    assert_eq!(peer.url.as_deref(), Some(srv.url("/slow.bin").as_str()), "the Peers tab shows the URL");
+    let shown = srv.url("/slow.bin").replacen("http://", "http://user:***@", 1);
+    assert_eq!(peer.url.as_deref(), Some(shown.as_str()), "the Peers tab shows the URL, password hidden");
+    // the engine still uses them: Basic dXNlcjpzM2NyZXQ= is user:s3cret
+    assert!(
+        auths.lock().unwrap().iter().all(|a| a.as_deref() == Some("Basic dXNlcjpzM2NyZXQ=")),
+        "every request carried the credentials"
+    );
+    let (urls, _) = w.web_seeds(id);
+    assert_eq!(urls, vec![with_creds.clone()], "the stored URL keeps them");
     assert_eq!(peer.client, "test-seed/1.0");
     assert!(peer.flags.contains(patorrent_core::PeerFlags::SEED));
     let st = w.finished(id, 60);

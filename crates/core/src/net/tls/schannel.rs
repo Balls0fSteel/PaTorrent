@@ -1173,12 +1173,29 @@ mod tests {
     #[test]
     fn keys_left_by_processes_that_are_gone_are_swept() {
         let p = Provider::open().unwrap();
-        // no process has this id (Windows process ids are multiples of 4)
-        let name = format!("{KEY_PREFIX}4294967293.0");
+        // No process has the id 4294967293 (Windows process ids are multiples of 4). The part
+        // after the dot names this run, so parallel runs (or one that crashed between import
+        // and sweep) never share, and overwrite, each other's key.
+        let nanos =
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+        let name = format!("{KEY_PREFIX}4294967293.{}-{nanos}", std::process::id());
         let key = pem::private_key(include_bytes!("../../../tests/fixtures/tls/ec-pkcs8.pem")).unwrap();
-        drop(p.import(&pem::pkcs8(&key).unwrap(), &wide(&name)).unwrap());
-        assert!(key_exists(&name));
+        let pkcs8 = pem::pkcs8(&key).unwrap();
+        // another test's Identity sweeps stale keys too, and may take this one before we look:
+        // import again until it is seen, then sweep it ourselves
+        let mut seen = false;
+        for _ in 0..5 {
+            drop(p.import(&pkcs8, &wide(&name)).unwrap());
+            if key_exists(&name) {
+                seen = true;
+                break;
+            }
+        }
         p.sweep_stale_keys();
-        assert!(!key_exists(&name));
+        let gone = !key_exists(&name);
+        // clean up whatever the assertions below leave
+        p.delete(&wide(&name));
+        assert!(seen, "the imported key exists");
+        assert!(gone, "the sweep deleted it");
     }
 }

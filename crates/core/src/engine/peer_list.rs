@@ -278,6 +278,15 @@ impl PeerList {
         }
     }
 
+    /// Leaving upload mode (libtorrent `torrent::set_upload_mode` resets every `last_connected`
+    /// to force a fast reconnect): no peer waits out its reconnect delay. Saved peers have
+    /// never been connected.
+    pub fn forget_last_connected(&mut self) {
+        if let PeerList::Live(l) = self {
+            l.forget_last_connected();
+        }
+    }
+
     /// Frees the list once it holds no peers (a stopped torrent trimmed to none).
     fn drop_if_empty(&mut self) {
         if self.len() == 0 {
@@ -545,6 +554,13 @@ impl Peers {
             p.rank = rank(external_ip, p.addr);
         }
     }
+
+    /// Forgets every peer's last connection time, so none waits out its reconnect delay.
+    pub fn forget_last_connected(&mut self) {
+        for p in &mut self.peers {
+            p.last_connected = None;
+        }
+    }
 }
 
 /// libtorrent `torrent_peer::rank`: BEP 40 priority against the address the peer sees us at
@@ -799,6 +815,12 @@ mod tests {
         // the plaintext retry after an encrypted attempt goes at once
         pl.connecting(a, 2, PeerSource::TRACKER, closed);
         pl.disconnected(&a, false, false, true, closed);
+        assert_eq!(pl.connect_candidates(5, closed, r), [a]);
+        // leaving upload mode forgets the delay (libtorrent `set_upload_mode`)
+        pl.connecting(a, 3, PeerSource::TRACKER, closed);
+        pl.disconnected(&a, false, false, false, closed);
+        assert!(pl.connect_candidates(5, closed, r).is_empty());
+        pl.forget_last_connected();
         assert_eq!(pl.connect_candidates(5, closed, r), [a]);
     }
 

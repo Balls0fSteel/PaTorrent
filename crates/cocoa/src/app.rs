@@ -563,6 +563,7 @@ pub fn run(cmd: Command) {
         | InitialSeeding | DownLimit(_) | UpLimit(_) | NewLabel | RemoveLabel | Label(_) => {
             crate::torrent_menu::run(cmd)
         }
+        Dialog(v) => crate::dialogs::run(v),
     }
 }
 

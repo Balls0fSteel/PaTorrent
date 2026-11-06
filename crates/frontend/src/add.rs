@@ -242,7 +242,26 @@ impl FileTree {
     }
 
     pub fn row(&self, i: usize) -> Option<Row<'_>> {
-        let node = &self.nodes[*self.rows.get(i)? as usize];
+        self.node(*self.rows.get(i)? as usize)
+    }
+
+    /// The tree's nodes by index, for a view that keeps its own expansion (macOS's outline
+    /// view): the top nodes for `None`, else the children of folder `node`, in display order.
+    /// A node's index stays the same for the tree's life.
+    pub fn children(&self, node: Option<usize>) -> Vec<usize> {
+        let ids = match node {
+            None => &self.roots,
+            Some(n) => match self.nodes.get(n).map(|n| &n.kind) {
+                Some(Kind::Dir { children, .. }) => children,
+                _ => return Vec::new(),
+            },
+        };
+        ids.iter().map(|&n| n as usize).collect()
+    }
+
+    /// Node `n` as a row (whether or not its folders are expanded here).
+    pub fn node(&self, n: usize) -> Option<Row<'_>> {
+        let node = self.nodes.get(n)?;
         Some(match &node.kind {
             &Kind::File(fi) => {
                 let fi = fi as usize;
@@ -307,10 +326,17 @@ impl FileTree {
         (parent != NO_PARENT).then(|| self.rows.iter().position(|&r| r == parent)).flatten()
     }
 
-    /// The torrent files in row `i` (the folder's files, recursively).
-    fn files_of(&self, i: usize, out: &mut Vec<usize>) {
-        let Some(&n) = self.rows.get(i) else { return };
-        let mut stack = vec![n];
+    /// The nodes of visible rows.
+    fn nodes_of(&self, rows: &[usize]) -> Vec<usize> {
+        rows.iter().filter_map(|&r| self.rows.get(r).map(|&n| n as usize)).collect()
+    }
+
+    /// The torrent files in node `n` (the folder's files, recursively).
+    fn files_of(&self, n: usize, out: &mut Vec<usize>) {
+        if n >= self.nodes.len() {
+            return;
+        }
+        let mut stack = vec![n as u32];
         while let Some(n) = stack.pop() {
             match &self.nodes[n as usize].kind {
                 Kind::File(fi) => out.push(*fi as usize),
@@ -322,15 +348,27 @@ impl FileTree {
     /// Clicking the check box of the given rows: a row that is fully on turns off, anything
     /// else turns on. With several rows, the first decides for all of them.
     pub fn toggle_checks(&mut self, rows: &[usize]) {
-        let Some(first) = rows.first().and_then(|&r| self.row(r)) else { return };
-        let on = first.check != Check::On;
-        self.set_checks(rows, on);
+        let nodes = self.nodes_of(rows);
+        self.toggle_node_checks(&nodes);
     }
 
     pub fn set_checks(&mut self, rows: &[usize], on: bool) {
+        let nodes = self.nodes_of(rows);
+        self.set_node_checks(&nodes, on);
+    }
+
+    /// [`FileTree::toggle_checks`] of nodes ([`FileTree::children`]).
+    pub fn toggle_node_checks(&mut self, nodes: &[usize]) {
+        let Some(first) = nodes.first().and_then(|&n| self.node(n)) else { return };
+        let on = first.check != Check::On;
+        self.set_node_checks(nodes, on);
+    }
+
+    /// [`FileTree::set_checks`] of nodes.
+    pub fn set_node_checks(&mut self, nodes: &[usize], on: bool) {
         let mut files = Vec::new();
-        for &r in rows {
-            self.files_of(r, &mut files);
+        for &n in nodes {
+            self.files_of(n, &mut files);
         }
         for fi in files {
             self.wanted[fi] = on;
@@ -351,9 +389,15 @@ impl FileTree {
     /// Sets the priority of the rows' files; "Don't Download" unchecks them, anything else
     /// checks them.
     pub fn set_priority(&mut self, rows: &[usize], p: DownloadPriority) {
+        let nodes = self.nodes_of(rows);
+        self.set_node_priority(&nodes, p);
+    }
+
+    /// [`FileTree::set_priority`] of nodes ([`FileTree::children`]).
+    pub fn set_node_priority(&mut self, nodes: &[usize], p: DownloadPriority) {
         let mut files = Vec::new();
-        for &r in rows {
-            self.files_of(r, &mut files);
+        for &n in nodes {
+            self.files_of(n, &mut files);
         }
         for fi in files {
             if p == DownloadPriority::DONT_DOWNLOAD {
@@ -693,6 +737,16 @@ pub fn remember_window(prefs: &mut Prefs, (w, h): (i32, i32)) {
     }
 }
 
+/// The dialog closed with this size; after OK with "Don't show this again" checked, Preferences'
+/// "Show a window that displays the files inside the torrent" goes off (`ui.show_add_dialog`).
+/// The caller saves the preferences.
+pub fn remember_dialog(prefs: &mut Prefs, window: (i32, i32), dont_show_again: bool) {
+    remember_window(prefs, window);
+    if dont_show_again {
+        prefs.set_bool("ui.show_add_dialog", false);
+    }
+}
+
 /// The remembered save folders, most recent first (`add.recent_dirs`, `|`-separated: no
 /// Windows or Unix path in practice contains one).
 pub fn recent_dirs(prefs: &Prefs) -> Vec<String> {
@@ -737,6 +791,14 @@ fn same_dir(a: &str, b: &str) -> bool {
         if cfg!(any(windows, target_os = "macos")) { s.to_lowercase() } else { s.to_owned() }
     };
     t(a) == t(b)
+}
+
+/// Add Torrent from URL starts with the clipboard's text when it is one link Rookparcel can add
+/// (`magnet:`, `http://`, `https://`), trimmed.
+pub fn offered_link(clipboard: &str) -> Option<String> {
+    let t = clipboard.trim();
+    let link = ["magnet:", "http://", "https://"].iter().any(|p| t.starts_with(p));
+    (link && !t.contains(char::is_whitespace)).then(|| t.to_owned())
 }
 
 /// "1.20 GB of 3.40 GB selected" (or just the size when everything is).
@@ -836,6 +898,60 @@ mod tests {
         assert_eq!(t.file_priorities()[2].0, 7);
         t.set_priority(&[0], DownloadPriority::DONT_DOWNLOAD);
         assert_eq!(t.row(0).unwrap().check, Check::Off);
+    }
+
+    #[test]
+    fn nodes_address_the_whole_tree() {
+        let mut t = sample();
+        let name = |t: &FileTree, n: usize| t.node(n).unwrap().name.to_owned();
+        let top = t.children(None);
+        assert_eq!(top.iter().map(|&n| name(&t, n)).collect::<Vec<_>>(), ["a.txt", "dir", "e.iso"]);
+        let dir = top[1];
+        let inside = t.children(Some(dir));
+        assert_eq!(inside.iter().map(|&n| name(&t, n)).collect::<Vec<_>>(), ["b.bin", "sub", "d.bin"]);
+        assert!(t.children(Some(top[0])).is_empty(), "files have no children");
+        assert!(t.children(Some(999)).is_empty());
+        assert!(t.node(999).is_none());
+        // collapsing in the row model does not hide nodes
+        let sub = inside[1];
+        assert!(t.toggle_expanded(3));
+        assert_eq!(t.children(Some(sub)).len(), 1);
+        assert_eq!(t.node(sub).unwrap().folder, Some(false));
+
+        t.toggle_node_checks(&[dir]);
+        assert_eq!(t.node(dir).unwrap().check, Check::Off);
+        assert_eq!(t.sizes(), (100_010, 111_110));
+        t.set_node_checks(&[sub], true);
+        assert_eq!(t.node(dir).unwrap().check, Check::Mixed);
+        t.set_node_priority(&[inside[0]], DownloadPriority::TOP);
+        assert_eq!(t.file_priorities()[1], DownloadPriority::TOP);
+        assert_eq!(t.node(inside[0]).unwrap().check, Check::On);
+        t.set_node_priority(&[top[2]], DownloadPriority::DONT_DOWNLOAD);
+        assert_eq!(t.node(top[2]).unwrap().check, Check::Off);
+        // the row forms and the node forms agree
+        assert_eq!(t.row(1), t.node(dir));
+    }
+
+    #[test]
+    fn the_clipboard_offers_one_link() {
+        assert_eq!(offered_link("  magnet:?xt=urn:btih:abc\n").as_deref(), Some("magnet:?xt=urn:btih:abc"));
+        assert_eq!(offered_link("https://x.org/a.torrent").as_deref(), Some("https://x.org/a.torrent"));
+        assert_eq!(offered_link("http://x.org/a.torrent").as_deref(), Some("http://x.org/a.torrent"));
+        assert_eq!(offered_link("ftp://x.org/a.torrent"), None);
+        assert_eq!(offered_link("see https://x.org/a.torrent"), None);
+        assert_eq!(offered_link("https://a.org/1 https://a.org/2"), None, "one link only");
+        assert_eq!(offered_link(""), None);
+    }
+
+    #[test]
+    fn the_dialog_remembers_its_size_and_dont_show_again() {
+        let mut prefs = Prefs::default();
+        remember_dialog(&mut prefs, (700, 450), false);
+        assert_eq!(window_size(&prefs), Some((700, 450)));
+        assert!(GuiOptions::load(&prefs, "x").show_add_dialog);
+        remember_dialog(&mut prefs, (0, 450), true);
+        assert_eq!(window_size(&prefs), Some((700, 450)), "a size of nothing is not kept");
+        assert!(!GuiOptions::load(&prefs, "x").show_add_dialog);
     }
 
     #[test]

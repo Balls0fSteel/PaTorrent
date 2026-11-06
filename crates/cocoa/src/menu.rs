@@ -452,6 +452,8 @@ mod tests {
                     | Command::ManageSources
                     | Command::Label(_)
                     | Command::Profile(_)
+                    // a torrent dialog's controls (slice F)
+                    | Command::Dialog(_)
             )
         };
         for c in crate::commands::ALL {

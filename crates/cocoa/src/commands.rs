@@ -81,10 +81,14 @@ pub enum Command {
     SearchSource(u16),
     SearchAllSources,
     ManageSources,
+    // slice F
+    /// A control of a torrent dialog (`dialogs::cmd`): the dialog's number and the control's
+    /// action, which `dialogs::run` hands to that dialog.
+    Dialog(u16),
 }
 
 /// Every command: those without a value, then those with one (at index 0).
-pub const ALL: [Command; 52] = [
+pub const ALL: [Command; 53] = [
     Command::About,
     Command::CheckUpdates,
     Command::Preferences,
@@ -137,6 +141,7 @@ pub const ALL: [Command; 52] = [
     Command::Label(0),
     Command::AutoShutdown(0),
     Command::SearchSource(0),
+    Command::Dialog(0),
 ];
 
 /// A tag's value part: 16 bits. Tags start at 1, so an untagged item (0) is no command.
@@ -199,6 +204,7 @@ impl Command {
             SearchSource(i) => (50, i),
             SearchAllSources => (51, 0),
             ManageSources => (52, 0),
+            Dialog(i) => (53, i),
         }
     }
 
@@ -258,6 +264,7 @@ impl Command {
             50 => Some(SearchSource(v)),
             51 => plain(SearchAllSources),
             52 => plain(ManageSources),
+            53 => Some(Dialog(v)),
             _ => None,
         }
     }
@@ -323,6 +330,6 @@ mod tests {
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
-        assert_eq!(Command::from_tag(53 << SHIFT), None);
+        assert_eq!(Command::from_tag(54 << SHIFT), None);
     }
 }

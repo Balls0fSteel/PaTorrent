@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_101504_1793956504: Version 1.2.6: `frontend::app`, the shared controller (macOS GUI slice A)
+
+- `crates/frontend/src/app/`: `Core` is GTK's `App` without widgets: the alert loop, the 1 s tick (scheduler, seeding goals, auto-load, RSS, Auto Shutdown, update check), torrent commands, the add, magnet and URL flows, the feed view, import and `apply_options`. Dialogs, notifications and power actions come back as `Events` or return values; workers wake the GUI through `Start::wake`. `app::dirs` generalises GTK's `paths.rs` to any GUI folder (`gtk`, `mac`), with `lock_library`, `prepare_options` and `adopt_server`. GTK and Win32 are unchanged; nothing uses it until the Mac GUI.
+- Deliberate differences from GTK: Logger times come from `Start::clock`; a magnet's dialog is marked open only once its metadata is there (GTK could leave the mark stuck); the detail tabs drop a removed torrent at once.
+- Checked on the merge: the frontend tests (308, with the new `Core` tests on the mock engine), clippy (stable, and `aarch64-apple-darwin`), fmt, the Win32 and nox builds. `fuzz/Cargo.lock` was already behind (1.2.2) and is left to its next fuzz build.
+
 ## 2026-11-06_094234_1793954554: The native macOS GUI is planned (D61)
 
 - [MACOS_GUI.md](docs/MACOS_GUI.md): the AppKit GUI of D52 (`crates/cocoa`, `rookparcel-mac`), its conventions, the VM workflow and briefs for slices A-L in four waves. The owner chose (D61): SF Symbols for toolbar and menus with D27 state icons, macOS 11 as the floor, a shared toolkit-free controller `frontend::app` ported from GTK's `app.rs`, instant-apply Preferences; the library moves to `Rookparcel/mac`, taking over the GTK bundle's `gtk` folders. Dependencies to add: the objc2 family (MSRV 1.71), macOS-only.

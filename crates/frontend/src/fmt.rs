@@ -101,6 +101,11 @@ pub fn set_utc_offset(secs: i32) {
     UTC_OFFSET.store(secs, std::sync::atomic::Ordering::Relaxed);
 }
 
+/// The offset [`set_utc_offset`] last set, in seconds east of UTC (0 until a frontend sets it).
+pub fn utc_offset() -> i32 {
+    UTC_OFFSET.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 /// `2026-10-15 16:47:12` in local time; empty for 0 (never / unknown).
 pub fn date_time(unix: i64) -> String {
     if unix <= 0 {

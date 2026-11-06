@@ -18,7 +18,7 @@ use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
     NSApplication, NSBorderType, NSButton, NSComboBox, NSEvent, NSImage, NSLayoutAttribute, NSOutlineView,
-    NSTableCellView, NSTableHeaderView, NSTextField, NSWindow,
+    NSStackViewDistribution, NSTableCellView, NSTableHeaderView, NSTextField, NSWindow,
 };
 use objc2_foundation::{NSFileManager, NSFileSystemFreeSize, NSNumber, NSSize};
 use rookparcel_frontend::add::{self as fadd, AddChoice, Check, FileTree};
@@ -255,6 +255,8 @@ fn show(req: AddRequest, mtm: MainThreadMarker) {
 
     let body = layout::hstack(&[&left, &right], mtm);
     body.setAlignment(NSLayoutAttribute::Top);
+    // the contents take the width the left column leaves
+    body.setDistribution(NSStackViewDistribution::Fill);
     body.setSpacing(20.0);
     layout::activate(&[right.bottomAnchor().constraintEqualToAnchor(&body.bottomAnchor())]);
     let again = check(tr!(AddDontShowAgain), false);
@@ -342,8 +344,14 @@ fn files_outline(
         };
         tree.children(parent).into_iter().map(|n| n as u64 + 1).collect()
     }));
+    let widths: Vec<f64> = [&name, &size, &priority].iter().map(|c| c.width).collect();
     let (scroll, outline, source) =
         table::outline(TableKind("add-files"), vec![name, size, priority], hooks, false, mtm);
+    // the outline sized its last column to its first (empty) frame: the widths again, and
+    // from now on only Name follows the outline's width
+    for (c, w) in outline.tableColumns().iter().zip(widths) {
+        c.setWidth(w);
+    }
     outline.setHeaderView(Some(&NSTableHeaderView::new(mtm)));
     outline.setAllowsMultipleSelection(true);
     outline.setUsesAlternatingRowBackgroundColors(true);

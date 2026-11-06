@@ -146,6 +146,7 @@ fn show(r: Remembered, remote: bool, mtm: MainThreadMarker) {
     let percent = ui::label("", mtm);
     layout::min_width(&percent, 60.0);
     let progress_row = layout::hstack(&[&progress, &percent], mtm);
+    progress_row.setDistribution(objc2_app_kit::NSStackViewDistribution::Fill);
 
     let create = ui::button_tr(tr!(CreateSave), cmd(id, CREATE), mtm);
     let close = ui::button_tr(tr!(BtnClose), cmd(id, CLOSE), mtm);

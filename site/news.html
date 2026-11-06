@@ -44,6 +44,20 @@
     <!-- Newest first. site/build.py makes news.atom and the home page's latest-news line from
          these articles: keep the id, data-date, news-title and news-lede (docs/WEBSITE.md). -->
 
+    <article class="news-entry" id="v1.2.5" data-date="2026-11-06" aria-labelledby="v1.2.5-h">
+      <h2 id="v1.2.5-h"><a href="#v1.2.5"><time datetime="2026-11-06">Fri 6 Nov 2026</time> — <span class="news-title">Rookparcel 1.2.5</span></a></h2>
+      <p class="news-lede">PaTorrent is now Rookparcel, with a new icon, the Postal Rook. Everything else is as in 1.2.0: settings, torrents, profiles and portable folders from PaTorrent are taken over at the first start.</p>
+      <ul class="changes">
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>The name: <code>rookparcel.exe</code>, <code>rookparcel-gtk</code> and <code>rookparcel-nox</code>, the repository <a href="https://github.com/Balls0fSteel/Rookparcel">Balls0fSteel/Rookparcel</a> and this website.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>The icon: a rook in a postal cap on a stamp, drawn by hand for the small sizes, on every platform and in the Web UI.</span></li>
+        <li><span class="tag tag-area">Updates</span><span class="vh">:</span> <span>The first start moves PaTorrent's folders, settings, file associations and autostart entries to the new name. Close PaTorrent first.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>The setup removes an installed PaTorrent; <code>rookparcel-nox service install</code> replaces a PaTorrent service.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>A Web UI login that arrives after its address was banned is answered "banned", not "Fails.".</span></li>
+      </ul>
+      <p class="news-note">PaTorrent does not offer this update by itself: install Rookparcel by hand once. Flatpak users copy two folders first; the release notes say how. A GUI and the <code>rookparcel-nox</code> it drives remotely must both be 1.2.5.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/Rookparcel/releases/tag/v1.2.5">Download 1.2.5 on GitHub</a> · <a href="https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/releases/1.2.5.md">Full release notes</a></p>
+    </article>
+
     <article class="news-entry" id="v1.2.0" data-date="2026-11-05" aria-labelledby="v1.2.0-h">
       <h2 id="v1.2.0-h"><a href="#v1.2.0"><time datetime="2026-11-05">Thu 5 Nov 2026</time> — <span class="news-title">Rookparcel 1.2.0</span></a></h2>
       <p class="news-lede">Profiles run several independent Rookparcels side by side, and portable mode now works on every platform. A bug hunt fixed a Web UI login bypass and a peer message that crashed the engine, so every user of 1.1.40 should update.</p>

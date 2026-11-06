@@ -9,10 +9,12 @@
 //!   result adds ([`fetch_download`]).
 //! - [`helper`]: the search helper (D51): Jackett downloaded at the user's click and run only
 //!   while searching, as the source "Search helper (all)".
+//! - [`view`]: what the search windows show and pick, without widgets (the macOS GUI's).
 
 pub mod helper;
 pub mod source;
 pub mod torznab;
+pub mod view;
 pub mod worker;
 
 pub use source::{Source, load_sources, redact, remove_source, store_sources};

@@ -273,6 +273,8 @@ fn start(mtm: MainThreadMarker, args: Args) {
     // slice G: the status item, the translocation notice, --minimized, the association check,
     // what was opened before
     crate::mac::started(mtm);
+    // slice I: the search field's kept mode (its hint and menu)
+    crate::search::started();
     log_line(&format!(
         "{} started{}",
         profile::name_build(),
@@ -487,6 +489,10 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
     if let Command::AutoShutdown(i) = cmd {
         return crate::mac::power::state(i);
     }
+    // slice I: the search field's modes, the current one checked
+    if let Command::SearchNames | Command::SearchSource(_) | Command::SearchAllSources = cmd {
+        return crate::search::state(cmd);
+    }
     if cmd.needs_selection() {
         return crate::torrent_menu::state(cmd);
     }
@@ -495,7 +501,6 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
             let me = profile::menu(&paths::profiles_root()).get(i as usize).is_some_and(|(_, me)| *me);
             Some(me)
         }
-        Command::SearchNames => Some(crate::search::filters_names()),
         _ => None,
     };
     let enabled = match cmd {
@@ -539,5 +544,7 @@ pub fn shutdown() -> Option<rookparcel_core::Exit> {
         with_core(|c| layout.store(c.prefs_mut()));
     }
     UI.with(|u| u.borrow_mut().take());
+    // slice I: the search stops, the search helper (if it runs) is killed
+    crate::search::shutdown();
     with_core(|c| c.shutdown()).flatten()
 }

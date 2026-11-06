@@ -26,7 +26,8 @@ tools/mac-vm/pull.sh B /tmp/shots-B
 ```
 
 `RP_APPEARANCE=dark` (or `light`) before `run.sh` switches the system appearance for the run and
-puts the old one back afterwards. `RP_VM` and `RP_KEY` choose another VM or key for `push.sh`
+puts the old one back afterwards. `RP_INI='key=value'` adds lines to the run's `rookparcel.ini`,
+which marks the Setup Guide as seen unless `RP_FRESH=1` asks for a first start. `RP_VM` and `RP_KEY` choose another VM or key for `push.sh`
 and `pull.sh`.
 
 ## The lock

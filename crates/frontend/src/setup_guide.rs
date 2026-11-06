@@ -114,6 +114,11 @@ pub fn step_text(index: usize, count: usize) -> String {
     crate::tr!(GuideStep, step = index + 1, count)
 }
 
+/// Whether Back and Next are enabled on page `page` (from 0) of `count`.
+pub fn nav(page: usize, count: usize) -> (bool, bool) {
+    (page > 0, page + 1 < count)
+}
+
 /// Whether `choice` should be drawn as option buttons rather than a drop-down: the guide's
 /// questions have two or three answers.
 pub fn as_options(choice: &Control, o: &Options) -> Option<Vec<(String, String)>> {
@@ -421,6 +426,14 @@ mod tests {
         assert!(new.integration.autostart && new.integration.torrent && new.integration.magnet);
         assert!(!new.integration.minimized);
         assert_eq!((new.settings.clone(), new.gui.clone()), (o.settings.clone(), o.gui.clone()));
+    }
+
+    #[test]
+    fn back_and_next_follow_the_page() {
+        assert_eq!(nav(0, 4), (false, true));
+        assert_eq!(nav(1, 4), (true, true));
+        assert_eq!(nav(3, 4), (true, false));
+        assert_eq!(nav(0, 1), (false, false));
     }
 
     #[test]

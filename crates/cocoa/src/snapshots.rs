@@ -14,7 +14,8 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSApplication, NSBitmapImageFileType, NSButton, NSPopUpButton, NSTabView, NSTextField, NSView, NSWindow,
+    NSApplication, NSBitmapImageFileType, NSButton, NSPopUpButton, NSSecureTextField, NSTabView, NSTextField,
+    NSView, NSWindow,
 };
 use objc2_foundation::{NSDictionary, NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer};
 
@@ -121,7 +122,12 @@ fn texts_of(view: &NSView, out: &mut Vec<String>) {
         return;
     }
     let any: &AnyObject = view.as_ref();
-    if let Some(t) = any.downcast_ref::<NSTextField>() {
+    if let Some(t) = any.downcast_ref::<NSSecureTextField>() {
+        // a password stays out of the list: only whether one is there
+        if !t.stringValue().is_empty() {
+            out.push("••••••".to_owned());
+        }
+    } else if let Some(t) = any.downcast_ref::<NSTextField>() {
         let s = t.stringValue().to_string();
         if !s.is_empty() {
             out.push(s);

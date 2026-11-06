@@ -9,7 +9,9 @@
 # Quit menu item, clicked through System Events; then kill).
 #
 #   RP_APPEARANCE=dark|light  switches the system appearance for the run and back afterwards
-#   RP_INI='key=value'        lines for the portable rookparcel.ini (default: empty)
+#   RP_INI='key=value'        lines for the portable rookparcel.ini (default: none)
+#   RP_FRESH=1                a first start: the Setup Guide comes first (D53); otherwise the
+#                             ini says it was seen, so a run reaches the main window
 #
 # The app's stdout and stderr (its log) go to ~/rp/SLICE/shots/app.log.
 set -euo pipefail
@@ -33,8 +35,9 @@ lock "run $SLICE"
 rm -rf "$RUN" "$SHOTS"
 mkdir -p "$RUN" "$SHOTS"
 cp -R "$APP_SRC" "$RUN/"
-# RP_INI: lines for the portable rookparcel.ini (for example list.sort=size:desc)
-printf '%s\n' "${RP_INI:-}" > "$RUN/rookparcel.ini"
+# RP_INI: lines for the portable rookparcel.ini (for example list.sort=size:desc); the Setup
+# Guide counts as seen unless RP_FRESH=1
+{ [ "${RP_FRESH:-}" = 1 ] || echo "ui.setup_guide_seen=true"; printf '%s\n' "${RP_INI:-}"; } > "$RUN/rookparcel.ini"
 EXE="$RUN/Rookparcel.app/Contents/MacOS/Rookparcel"
 
 appearance_was=""

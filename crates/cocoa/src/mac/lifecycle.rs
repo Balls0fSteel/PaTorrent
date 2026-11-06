@@ -32,6 +32,9 @@ use crate::mainq;
 thread_local! {
     /// The Mac is logging out, restarting or shutting down.
     static LOGOUT: Cell<bool> = const { Cell::new(false) };
+    /// The application is ending (`applicationShouldTerminate:` came): windows that close now
+    /// are not answered (a first-start Setup Guide quit leaves the settings to ask again, D53).
+    static QUITTING: Cell<bool> = const { Cell::new(false) };
     static OBSERVERS: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -145,6 +148,11 @@ pub fn after_last_window_closed() -> bool {
     false
 }
 
+/// The application is ending: a window closing now is not the user's answer.
+pub fn quitting() -> bool {
+    QUITTING.with(Cell::get)
+}
+
 /// Quit (the menus, the status item, Auto Shutdown): AppKit does not end an application while
 /// a sheet is up (it never asks `applicationShouldTerminate:`), so the sheets go first, as if
 /// cancelled (`NSModalResponseAbort`: no button), then the application ends.
@@ -163,6 +171,7 @@ pub fn quit() {
 /// start that failed, a second start handing over its files) the application ends at once;
 /// otherwise when the closing window has seen the engine done.
 pub fn should_terminate(mtm: MainThreadMarker) -> NSApplicationTerminateReply {
+    QUITTING.with(|q| q.set(true));
     if super::closing::running() {
         return NSApplicationTerminateReply::TerminateLater;
     }

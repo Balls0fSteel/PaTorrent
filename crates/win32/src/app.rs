@@ -5162,6 +5162,82 @@ mod search_tests {
         }
     }
 
+    /// Letters typed in the torrent list select the next torrent whose name starts with them,
+    /// in the order the list shows (sorted), as in Explorer.
+    #[test]
+    fn letters_typed_in_the_torrent_list_go_to_the_torrent() {
+        unsafe {
+            let icc = INITCOMMONCONTROLSEX {
+                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
+                dwICC: ICC_WIN95_CLASSES
+                    | ICC_BAR_CLASSES
+                    | ICC_TAB_CLASSES
+                    | ICC_LISTVIEW_CLASSES
+                    | ICC_TREEVIEW_CLASSES,
+            };
+            InitCommonControlsEx(&icc);
+            let instance = GetModuleHandleW(null());
+            let mut wc: WNDCLASSEXW = zeroed();
+            wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = instance;
+            wc.lpszClassName = w!("RookparcelTypeAheadTestWnd");
+            RegisterClassExW(&wc);
+            wc.lpfnWndProc = Some(panel_proc);
+            wc.lpszClassName = PANEL_CLASS;
+            RegisterClassExW(&wc);
+            let hwnd = CreateWindowExW(
+                0,
+                w!("RookparcelTypeAheadTestWnd"),
+                w!("Rookparcel type-ahead test"),
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                0,
+                0,
+                900,
+                600,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            assert!(!hwnd.is_null());
+            let session = Session::start_mock(
+                Settings::default(),
+                MockConfig { initial_torrents: 0, active_fraction: 0.0, ..MockConfig::default() },
+            );
+            let mut prefs = Prefs::default();
+            prefs.set_bool("ui.show_add_dialog", false);
+            init(hwnd, session, prefs);
+            let names = ["Gamma", "alpha", "golf", "Beta"];
+            let statuses = names.iter().enumerate().map(|(i, n)| rookparcel_core::TorrentStatus {
+                id: TorrentId::from_raw(i as u64 + 1),
+                name: (*n).to_owned(),
+                ..Default::default()
+            });
+            with_app(|a| {
+                a.list.update(statuses);
+                a.list.toggle_sort(Column::Name);
+            });
+            refresh_list();
+            let lv = with_app(|a| a.lv).unwrap();
+            assert_eq!(send(lv, LVM_GETITEMCOUNT, 0, 0), 4);
+            let name_at = |row: usize| {
+                with_app(|a| a.list.view().get(row).and_then(|&id| a.list.get(id)).map(|s| s.name.clone()))
+                    .flatten()
+            };
+            assert_eq!(name_at(0).as_deref(), Some("alpha"), "sorted by name");
+            // "g" again and again: Gamma, golf, and round to Gamma
+            let mut seen = Vec::new();
+            for c in ['g', 'g', 'g'] {
+                SendMessageW(lv, WM_CHAR, c as WPARAM, 0);
+                seen.push(controls::focused(lv).and_then(name_at));
+            }
+            DestroyWindow(hwnd);
+            let seen: Vec<_> = seen.iter().map(|s| s.as_deref()).collect();
+            assert_eq!(seen, [Some("Gamma"), Some("golf"), Some("Gamma")]);
+        }
+    }
+
     fn file(path: &str, pad_file: bool) -> rookparcel_core::FileEntry {
         rookparcel_core::FileEntry {
             path: path.into(),
@@ -5237,6 +5313,12 @@ mod search_tests {
             update_detail_lists();
             assert_eq!(send(lv, LVM_GETITEMCOUNT, 0, 0), 3);
             assert_eq!(crate::util::window_text(count), "");
+            // type-ahead finds a file by its own name as well as by its path
+            for c in "s01e02".chars() {
+                SendMessageW(lv, WM_CHAR, c as WPARAM, 0);
+            }
+            assert_eq!(controls::focused(lv), Some(2));
+            controls::set_state(lv, None, false, false);
 
             // typing filters the rows; they map to the files shown
             SetWindowTextW(filter, w!("e01 SUBS"));
@@ -6042,6 +6124,20 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 }
                 0
             }
+            // type-ahead: the row whose name starts with the typed letters
+            (IDC_LIST, LVN_ODFINDITEMW) => with_app(|a| {
+                if a.feed_view.is_some() {
+                    let rows = &a.feed_rows;
+                    return controls::answer_find_item(nm as LPARAM, rows.len(), |i| {
+                        rows[i].cells.first().map_or("", String::as_str)
+                    });
+                }
+                let (view, list) = (a.list.view(), &a.list);
+                controls::answer_find_item(nm as LPARAM, view.len(), |i| {
+                    list.get(view[i]).map_or("", |s| s.name.as_str())
+                })
+            })
+            .unwrap_or(-1),
             (IDC_LIST, NM_CUSTOMDRAW) => list_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW)),
             (IDC_LIST, LVN_COLUMNCLICK) if with_app(|a| a.feed_view.is_some()) == Some(true) => 0,
             (IDC_LIST, LVN_COLUMNCLICK) => {
@@ -6166,6 +6262,28 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                     open_file(hwnd, row as usize, false);
                 }
                 0
+            }
+            // type-ahead in the Files tab, over the rows the filter lets through (D50): the
+            // path as the row shows it, or the file's own name (the paths of a torrent with a
+            // folder all start with it)
+            (i, LVN_ODFINDITEMW) if i == IDC_PAGE + Page::Files.index() => with_app(|a| {
+                let d = &a.detail;
+                let files = d.files.as_deref().unwrap_or(&[]);
+                controls::answer_find_item_by(nm as LPARAM, d.file_rows.len(), |row, text, whole| {
+                    let Some(f) = files.get(d.file_rows[row] as usize) else { return false };
+                    let name = f.path.rsplit(['/', '\\']).next().unwrap_or("");
+                    controls::name_matches(&f.path, text, whole) || controls::name_matches(name, text, whole)
+                })
+            })
+            .unwrap_or(-1),
+            // and in the other lists, their first column
+            (i, LVN_ODFINDITEMW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
+                let page = Page::ALL[i - IDC_PAGE];
+                with_app(|a| {
+                    let rows = a.detail.rows(page);
+                    controls::answer_find_item(nm as LPARAM, rows, |row| a.detail.cell(page, row, 0))
+                })
+                .unwrap_or(-1)
             }
             (i, NM_CUSTOMDRAW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
                 controls::selection_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW))

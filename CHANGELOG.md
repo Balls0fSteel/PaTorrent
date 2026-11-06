@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_094234_1793954554: The native macOS GUI is planned (D61)
+
+- [MACOS_GUI.md](docs/MACOS_GUI.md): the AppKit GUI of D52 (`crates/cocoa`, `rookparcel-mac`), its conventions, the VM workflow and briefs for slices A-L in four waves. The owner chose (D61): SF Symbols for toolbar and menus with D27 state icons, macOS 11 as the floor, a shared toolkit-free controller `frontend::app` ported from GTK's `app.rs`, instant-apply Preferences; the library moves to `Rookparcel/mac`, taking over the GTK bundle's `gtk` folders. Dependencies to add: the objc2 family (MSRV 1.71), macOS-only.
+- Checked for the plan: the macOS VM (Intel 15.8.2, Command Line Tools only, rustc 1.99) and that Windows type-checks both Apple targets; objc2-app-kit 0.3.2 has the needed APIs (`sidebarWithViewController`, `searchMenuTemplate`, `reloadDataForRowIndexes`, the standard About panel, SF Symbols). D60, which sat in the "Proposed" table, is moved to the approved ones. Documentation only; no version bump.
+
 ## 2026-11-06_092025_1793953225: Website: favicon links carry the icon's hash
 
 - The owner still saw the old icon as the site's favicon. The deployed `img/icon-*.png` were already the Postal Rook (byte for byte); browsers keep a favicon per page and do not refetch a changed file at the same URL. `site/build.py` now adds `?v=<hash of the icon PNGs>` to every page's `rel="icon"` and `apple-touch-icon` links, so a new icon gets a new URL. Test in `WholeBuild`; WEBSITE.md notes it.

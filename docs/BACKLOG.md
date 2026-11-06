@@ -314,6 +314,12 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 ## macOS and packaged Linux builds
 
+- **Native macOS GUI (D61, [MACOS_GUI.md](MACOS_GUI.md), 2026-11-06_094234_1793954554)** follow-ups outside its slices:
+  move the GTK GUI onto `frontend::app` once the Mac GUI has proven it (about 1,500 fewer GTK
+  lines, re-tested on Xubuntu); a macOS 11-14 VM, since the owner's VM runs 15.8 and the GUI
+  claims 11; notarization, which needs an Apple developer account (the owner's question);
+  status-bar speed-limit menus, absent in every GUI; a monochrome rook for the menu bar.
+  The GTK notes below apply until slice K drops the GTK bundle on macOS.
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

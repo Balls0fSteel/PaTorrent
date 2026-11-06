@@ -114,6 +114,21 @@ pub enum Command {
     QuitNow,
     /// The Auto Shutdown countdown's Cancel.
     CancelShutdown,
+    // slice H: the Feeds rows' context menu acts on the feed it was opened for (`rss`)
+    /// Add RSS Feed.
+    FeedAdd,
+    /// Edit Feed.
+    FeedEdit,
+    /// Disable Feed / Enable Feed.
+    FeedToggle,
+    /// Update Feed (the Feeds row: every enabled feed).
+    FeedUpdate,
+    /// Delete Feed, after its question.
+    FeedDelete,
+    /// The RSS Downloader with that feed picked.
+    FeedRss,
+    /// The feed items in the list: download the selected ones (also a double click, Return).
+    FeedDownload,
 }
 
 /// The Files tab's commands (slice D), apart from [`ALL`], whose menus they are not in.
@@ -127,7 +142,7 @@ pub const FILES: [Command; 6] = [
 ];
 
 /// Every command: those without a value, then those with one (at index 0).
-pub const ALL: [Command; 57] = [
+pub const ALL: [Command; 64] = [
     Command::About,
     Command::CheckUpdates,
     Command::Preferences,
@@ -177,6 +192,13 @@ pub const ALL: [Command; 57] = [
     Command::StatusItem,
     Command::QuitNow,
     Command::CancelShutdown,
+    Command::FeedAdd,
+    Command::FeedEdit,
+    Command::FeedToggle,
+    Command::FeedUpdate,
+    Command::FeedDelete,
+    Command::FeedRss,
+    Command::FeedDownload,
     Command::Profile(0),
     Command::DownLimit(0),
     Command::UpLimit(0),
@@ -265,6 +287,14 @@ impl Command {
             StatusItem => (61, 0),
             QuitNow => (62, 0),
             CancelShutdown => (63, 0),
+            // slice H (kinds 70-79)
+            FeedAdd => (70, 0),
+            FeedEdit => (71, 0),
+            FeedToggle => (72, 0),
+            FeedUpdate => (73, 0),
+            FeedDelete => (74, 0),
+            FeedRss => (75, 0),
+            FeedDownload => (76, 0),
         }
     }
 
@@ -342,6 +372,14 @@ impl Command {
             61 => plain(StatusItem),
             62 => plain(QuitNow),
             63 => plain(CancelShutdown),
+            // slice H
+            70 => plain(FeedAdd),
+            71 => plain(FeedEdit),
+            72 => plain(FeedToggle),
+            73 => plain(FeedUpdate),
+            74 => plain(FeedDelete),
+            75 => plain(FeedRss),
+            76 => plain(FeedDownload),
             _ => None,
         }
     }
@@ -426,5 +464,15 @@ mod tests {
             assert!(!c.needs_selection());
         }
         assert_eq!(Command::from_tag(102 << SHIFT), None);
+    }
+
+    #[test]
+    fn slice_h_kinds_are_its_own() {
+        use Command::*;
+        for c in [FeedAdd, FeedEdit, FeedToggle, FeedUpdate, FeedDelete, FeedRss, FeedDownload] {
+            assert!((70..80).contains(&(c.tag() >> SHIFT)), "{c:?}");
+            assert!(ALL.contains(&c));
+            assert!(!c.needs_selection(), "the feed menus act on a feed, not on the torrents");
+        }
     }
 }

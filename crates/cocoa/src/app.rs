@@ -338,6 +338,9 @@ pub fn apply(ev: Option<Events>) {
     if ev.status {
         crate::mac::status_item::update();
     }
+    if ev.feeds {
+        crate::rss::on_events();
+    }
     if ev.magnet_ready || !ev.adds.is_empty() {
         crate::dialogs::add::from_events(ev.magnet_ready, ev.adds);
     }
@@ -393,6 +396,10 @@ pub fn run(cmd: Command) {
         return;
     }
     crate::snapshots::log_command(cmd);
+    // a key equivalent can still come while a feed's items are shown (see `state`)
+    if cmd.needs_selection() && feed_items_shown() {
+        return;
+    }
     use Command::*;
     match cmd {
         // slice G: sheets that would hold the quit up go first
@@ -470,12 +477,20 @@ pub fn run(cmd: Command) {
             crate::detail::run(cmd)
         }
         Dialog(v) => crate::dialogs::run(v),
+        FeedAdd | FeedEdit | FeedToggle | FeedUpdate | FeedDelete | FeedRss | FeedDownload => {
+            crate::rss::run(cmd)
+        }
     }
 }
 
 /// Collapses or expands a split view item.
 fn collapse(item: &NSSplitViewItem, collapsed: bool) {
     item.setCollapsed(collapsed);
+}
+
+/// The list shows a feed's items instead of the torrents (slice H).
+fn feed_items_shown() -> bool {
+    peek(|c| c.feed_view().is_some()).unwrap_or(false)
 }
 
 /// Whether a command is enabled now, and whether it shows a check mark.
@@ -487,7 +502,15 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
     if let Command::AutoShutdown(i) = cmd {
         return crate::mac::power::state(i);
     }
+    // slice H: the feed menus
+    if let Some(s) = crate::rss::state(cmd) {
+        return s;
+    }
     if cmd.needs_selection() {
+        // a feed's items in the list: the hidden torrent selection is not the one shown
+        if feed_items_shown() {
+            return (false, None);
+        }
         return crate::torrent_menu::state(cmd);
     }
     let checked = match cmd {

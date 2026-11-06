@@ -179,6 +179,9 @@ pub fn build(
     hooks.selection = Some(Box::new(select));
     let (scroll, outline, source) = table::outline(TableKind("sidebar"), vec![spec], hooks, true, mtm);
     outline.setAllowsEmptySelection(false);
+    // slice H: the Feeds rows' context menu (empty, so not shown, on the other rows)
+    // SAFETY: the outline keeps its menu.
+    unsafe { outline.setMenu(Some(&crate::menu::live(crate::menu::Role::Feeds, mtm))) };
     (scroll, outline, source)
 }
 
@@ -186,6 +189,25 @@ pub fn build(
 pub fn select_all_torrents() {
     if let Some(u) = ui() {
         u.sidebar.select(&[TORRENTS]);
+    }
+}
+
+/// Slice H: the feed of the row a context click is on (`Some(None)`: the Feeds row); `None`
+/// for the other rows.
+pub fn clicked_feed() -> Option<Option<FeedId>> {
+    let u = ui()?;
+    let row = u.sidebar_view.clickedRow();
+    let id = u.sidebar_view.itemAtRow(row)?.downcast_ref::<NSNumber>()?.as_u64();
+    match pick_of(id)? {
+        Pick::Feed(f) => Some(f),
+        Pick::Torrents(_) => None,
+    }
+}
+
+/// Slice H: picks the Feeds row (`None`) or a feed's row, as a click would.
+pub fn select_feed(feed: Option<FeedId>) {
+    if let Some(u) = ui() {
+        u.sidebar.select(&[feed.map_or(FEEDS, |f| FEED_BASE + u64::from(f))]);
     }
 }
 

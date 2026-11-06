@@ -338,6 +338,9 @@ pub fn apply(ev: Option<Events>) {
     if ev.status {
         crate::mac::status_item::update();
     }
+    if ev.feeds {
+        crate::rss::on_events();
+    }
     if ev.magnet_ready || !ev.adds.is_empty() {
         crate::dialogs::add::from_events(ev.magnet_ready, ev.adds);
     }
@@ -470,6 +473,9 @@ pub fn run(cmd: Command) {
             crate::detail::run(cmd)
         }
         Dialog(v) => crate::dialogs::run(v),
+        FeedAdd | FeedEdit | FeedToggle | FeedUpdate | FeedDelete | FeedRss | FeedDownload => {
+            crate::rss::run(cmd)
+        }
     }
 }
 
@@ -486,6 +492,10 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
     // slice G: the current mode checked, Hibernate greyed
     if let Command::AutoShutdown(i) = cmd {
         return crate::mac::power::state(i);
+    }
+    // slice H: the feed menus
+    if let Some(s) = crate::rss::state(cmd) {
+        return s;
     }
     if cmd.needs_selection() {
         return crate::torrent_menu::state(cmd);

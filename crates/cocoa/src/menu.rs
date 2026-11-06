@@ -62,6 +62,8 @@ pub enum Role {
     Profiles,
     /// Torrent > Label: rebuilt when it opens.
     Labels,
+    /// Slice H: the sidebar's context menu, filled for the Feeds row clicked (`rss`).
+    Feeds,
 }
 
 /// A menu item.
@@ -408,6 +410,14 @@ mod sys {
         }
     }
 
+    /// An empty menu filled each time it opens (`menuNeedsUpdate:`) for `role`.
+    pub fn live(role: Role, mtm: MainThreadMarker) -> Retained<NSMenu> {
+        let menu = build("", &[], mtm);
+        menu.setDelegate(Some(ProtocolObject::from_ref(&*target(mtm))));
+        LIVE.with(|l| l.borrow_mut().push((menu.clone(), role)));
+        menu
+    }
+
     /// Sets the application's main menu from [`super::tree`].
     pub fn build_main(mtm: MainThreadMarker) {
         let bar = build("", &super::tree(), mtm);
@@ -425,6 +435,7 @@ mod sys {
         let items = match role {
             Role::Profiles => super::profiles(&crate::app::profile_names()),
             Role::Labels => super::label_items(&crate::app::labels()),
+            Role::Feeds => crate::rss::sidebar_menu_items(),
             _ => return,
         };
         fill(menu, &items, mtm);
@@ -460,6 +471,14 @@ mod tests {
                     | Command::StatusItem
                     | Command::QuitNow
                     | Command::CancelShutdown
+                    // slice H: the Feeds rows' and the feed items' context menus
+                    | Command::FeedAdd
+                    | Command::FeedEdit
+                    | Command::FeedToggle
+                    | Command::FeedUpdate
+                    | Command::FeedDelete
+                    | Command::FeedRss
+                    | Command::FeedDownload
             )
         };
         for c in crate::commands::ALL {

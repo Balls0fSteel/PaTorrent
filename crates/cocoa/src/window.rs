@@ -116,6 +116,9 @@ pub struct Ui {
     pub sidebar: Retained<RPTableSource>,
     pub list_view: Retained<RPTableView>,
     pub list: Retained<RPTableSource>,
+    /// What holds the torrent list's scroll view (slice H puts the feed items' table beside it,
+    /// one of the two shown).
+    pub list_box: Retained<NSView>,
     pub tabs: Retained<NSTabView>,
     pub status: Status,
 }
@@ -401,7 +404,10 @@ pub fn build(
     let tabs = tabs(&delegate, mtm);
     let content_split = NSSplitViewController::new(mtm);
     content_split.splitView().setVertical(false);
-    let list_item = NSSplitViewItem::splitViewItemWithViewController(&controller(&list.0, mtm));
+    let list_box = NSView::new(mtm);
+    list_box.addSubview(&list.0);
+    layout::pin(&list.0, &list_box, 0.0);
+    let list_item = NSSplitViewItem::splitViewItemWithViewController(&controller(&list_box, mtm));
     list_item.setMinimumThickness(80.0);
     let details_item = NSSplitViewItem::splitViewItemWithViewController(&controller(&tabs, mtm));
     details_item.setMinimumThickness(120.0);
@@ -454,6 +460,7 @@ pub fn build(
         sidebar: sidebar.2,
         list_view: list.1,
         list: list.2,
+        list_box,
         tabs,
         status,
     }

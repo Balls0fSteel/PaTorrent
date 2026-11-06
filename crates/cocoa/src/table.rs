@@ -26,8 +26,8 @@ use objc2::rc::{Retained, Weak};
 use objc2::runtime::{AnyObject, NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send, sel};
 use objc2_app_kit::{
-    NSControl, NSControlStateValueOff, NSControlStateValueOn, NSControlTextEditingDelegate, NSEvent, NSImage,
-    NSImageView, NSLineBreakMode, NSMenu, NSMenuItem, NSMenuItemValidation, NSOutlineView,
+    NSButton, NSControl, NSControlStateValueOff, NSControlStateValueOn, NSControlTextEditingDelegate,
+    NSEvent, NSImage, NSImageView, NSLineBreakMode, NSMenu, NSMenuItem, NSMenuItemValidation, NSOutlineView,
     NSOutlineViewDataSource, NSOutlineViewDelegate, NSResponder, NSTableCellView, NSTableColumn, NSTableView,
     NSTableViewDataSource, NSTableViewDelegate, NSTableViewStyle, NSTextAlignment, NSTextField,
     NSUserInterfaceItemIdentification, NSView,
@@ -54,6 +54,9 @@ pub enum CellKind {
     Bar,
     /// A canvas of this kind (`CellValue::Drawn`), as the Pieces list's Blocks cells.
     Drawn(canvas::Kind),
+    /// A check box with the text as its title (`CellValue::Check`); a click calls `hooks.check`
+    /// (the RSS Downloader's filter list).
+    Check,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +108,8 @@ pub enum CellValue {
     Bar(canvas::Bar),
     /// A `CellKind::Drawn` cell's value and the text VoiceOver reads for it.
     Drawn(Box<dyn std::any::Any>, String),
+    /// A `CellKind::Check` cell: on or off, and its title.
+    Check(bool, String),
     Empty,
 }
 
@@ -153,6 +158,8 @@ pub struct Hooks {
     pub menu: Option<MenuHook>,
     /// The columns in display order: (spec index, width, visible).
     pub layout: Option<Hook<Vec<ColumnState>, ()>>,
+    /// A `CellKind::Check` cell was clicked: (row's id, its new state).
+    pub check: Option<Hook<(u64, bool), ()>>,
 }
 
 impl Hooks {
@@ -174,6 +181,7 @@ impl Hooks {
             key: None,
             menu: None,
             layout: None,
+            check: None,
         }
     }
 }
@@ -222,6 +230,20 @@ define_class!(
             let Some(id) = self.id_of_row(&tv, row as usize) else { return };
             if let Some(f) = &self.ivars().hooks.activate {
                 f(id);
+            }
+        }
+
+        /// A `CellKind::Check` cell's check box was clicked.
+        #[unsafe(method(checkClicked:))]
+        fn check_clicked(&self, sender: &NSButton) {
+            let Some(tv) = self.table() else { return };
+            let row = tv.rowForView(sender);
+            if row < 0 {
+                return;
+            }
+            let Some(id) = self.id_of_row(&tv, row as usize) else { return };
+            if let Some(f) = &self.ivars().hooks.check {
+                f((id, sender.state() == NSControlStateValueOn));
             }
         }
     }
@@ -437,6 +459,14 @@ impl RPTableSource {
             None => {
                 let v = make_cell(spec, mtm);
                 v.setIdentifier(Some(&reuse));
+                if let Some(b) = check_box(&v) {
+                    // SAFETY: `checkClicked:` is this source's action; the button keeps its target
+                    // weakly, and the source outlives its table's cells.
+                    unsafe {
+                        b.setTarget(Some(self));
+                        b.setAction(Some(sel!(checkClicked:)));
+                    }
+                }
                 v
             }
         };
@@ -582,6 +612,20 @@ fn make_cell(spec: &ColumnSpec, mtm: MainThreadMarker) -> Retained<NSView> {
         return Retained::into_super(RPCanvas::new(kind, Box::new(()), mtm));
     }
     let cell = NSTableCellView::new(mtm);
+    if spec.kind == CellKind::Check {
+        // SAFETY: the target and action are set by the caller (`cell_view`); nil for now.
+        let b =
+            unsafe { NSButton::checkboxWithTitle_target_action(&NSString::from_str(""), None, None, mtm) };
+        b.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
+        auto(&b);
+        cell.addSubview(&b);
+        crate::ui::layout::activate(&[
+            b.leadingAnchor().constraintEqualToAnchor_constant(&cell.leadingAnchor(), 2.0),
+            b.trailingAnchor().constraintLessThanOrEqualToAnchor_constant(&cell.trailingAnchor(), -2.0),
+            b.centerYAnchor().constraintEqualToAnchor(&cell.centerYAnchor()),
+        ]);
+        return Retained::into_super(cell);
+    }
     let text = text_cell(spec, mtm);
     cell.addSubview(&text);
     let leading = if spec.kind == CellKind::IconText {
@@ -625,12 +669,20 @@ fn fill_cell(view: &NSView, value: CellValue) {
         }
         return;
     }
+    if let Some(b) = check_box(view) {
+        if let CellValue::Check(on, title) = value {
+            b.setTitle(&NSString::from_str(&title));
+            b.setState(if on { NSControlStateValueOn } else { NSControlStateValueOff });
+        }
+        return;
+    }
     let Some(cell) = view.downcast_ref::<NSTableCellView>() else { return };
     let (image, text) = match value {
         CellValue::Text(t) => (None, t),
         CellValue::IconText(i, t) => (i, t),
         CellValue::Bar(b) => (None, b.text),
         CellValue::Drawn(_, t) => (None, t),
+        CellValue::Check(_, t) => (None, t),
         CellValue::Empty => (None, String::new()),
     };
     // SAFETY: the cell's own subviews, set in `make_cell`.
@@ -641,6 +693,11 @@ fn fill_cell(view: &NSView, value: CellValue) {
     if let Some(iv) = unsafe { cell.imageView() } {
         iv.setImage(image.as_deref());
     }
+}
+
+/// The check box of a `CellKind::Check` cell view.
+fn check_box(view: &NSView) -> Option<Retained<NSButton>> {
+    view.downcast_ref::<NSTableCellView>()?.subviews().firstObject()?.downcast::<NSButton>().ok()
 }
 
 /// A table of `specs` with `hooks`, in a scroll view; the source must be kept (tables hold

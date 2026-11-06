@@ -1003,6 +1003,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   (F1 against the browser's, phone, dark mode, RTL) not seen. The other dialogs (Add, Properties,
   RSS) and GTK's main-menu items have no help yet; `docs/HELP_TEXTS.md` is for the owner's review
   against the code. Translations of the help texts come with the wiki (fall back to English).
+- **Add Torrent filter and type-ahead** (1.2.20): GTK not run (Escape order between the search entry and the window's shortcut is reasoned, not seen); macOS not run (Escape in an empty search field, type-select in the view-based outline, and clearing the filter re-expands every folder because the outline keeps its own expansion); Win32 at 150-200 % DPI and the classic theme; the Web UI on a phone and RTL. A Space typed within comctl's type-ahead timeout may join its prefix. The Web UI has no PageUp/PageDown in the add list (the static-size budget has about 1.4 KB left).
+- **Win32 app tests can hang on failure:** many `app.rs` tests assert before `DestroyWindow`, so a failing one may block instead of exiting (seen 2026-11-06 with a new test). Destroy first, or guard the window, then assert; run single tests with a hard timeout meanwhile.
 - **Found while writing the texts:** `hashing_threads` is read by nothing (its label and help
   now say so); `tracker_receive_timeout` and `request_timeout` are unused;
   `max_queued_disk_bytes` acts as at least 4 MB, so the 1 MB default means 4 MB;

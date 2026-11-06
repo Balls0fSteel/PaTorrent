@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_201236_1793992356
+Last updated: 2026-11-06_232629_1794003989
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**Release 1.2.19 published (2026-11-06_201236_1793992356):** the first native Mac app ([notes](docs/releases/1.2.19.md)), with the site's Mac text, its news entry and the wiki. Next on macOS: drop the unused legacy notification centre (BACKLOG "macOS" (A)).
+**1.2.20 (2026-11-06_232629_1794003989):** an Add Torrent file filter and type-ahead in all four GUIs, type-ahead in Win32's lists; GTK and macOS compile-checked only (BACKLOG "Files tab filter and help text"). Next on macOS: drop the legacy notification centre (BACKLOG "macOS" (A)).
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

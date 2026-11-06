@@ -81,6 +81,11 @@ pub enum Command {
     SearchSource(u16),
     SearchAllSources,
     ManageSources,
+    // slice C
+    /// The status bar's update notice: opens the release page, the notice goes away.
+    UpdateNotice,
+    /// The status bar's network part: Preferences > Connection while the port is taken.
+    NetworkStatus,
 }
 
 /// Every command: those without a value, then those with one (at index 0).
@@ -199,6 +204,9 @@ impl Command {
             SearchSource(i) => (50, i),
             SearchAllSources => (51, 0),
             ManageSources => (52, 0),
+            // slice C (kinds from 100, apart from the other slices' additions)
+            UpdateNotice => (100, 0),
+            NetworkStatus => (101, 0),
         }
     }
 
@@ -258,6 +266,9 @@ impl Command {
             50 => Some(SearchSource(v)),
             51 => plain(SearchAllSources),
             52 => plain(ManageSources),
+            // slice C
+            100 => plain(UpdateNotice),
+            101 => plain(NetworkStatus),
             _ => None,
         }
     }
@@ -324,5 +335,14 @@ mod tests {
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
         assert_eq!(Command::from_tag(53 << SHIFT), None);
+    }
+
+    #[test]
+    fn slice_c_tags_round_trip() {
+        for c in [Command::UpdateNotice, Command::NetworkStatus] {
+            assert_eq!(Command::from_tag(c.tag()), Some(c));
+            assert!(!c.needs_selection());
+        }
+        assert_eq!(Command::from_tag(102 << SHIFT), None);
     }
 }

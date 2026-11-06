@@ -15,12 +15,14 @@
 //! The parts: `alerts` (the alert loop), `tick` (the timer: scheduler, seeding goals, auto-load,
 //! Auto Shutdown, the update check), `commands` (torrent actions, menus, Preferences), `add`
 //! (adding torrents, the Add New Torrent dialog's flow), `rss` (the RSS Downloader and the feed
-//! view), `status` (status bar, titles), `dirs` (where a GUI keeps its files).
+//! view), `status` (status bar, titles), `dirs` (where a GUI keeps its files), `layout` (the
+//! macOS main window's layout in the preferences).
 
 mod add;
 mod alerts;
 mod commands;
 mod dirs;
+mod layout;
 mod rss;
 mod status;
 mod tick;
@@ -31,6 +33,7 @@ mod tests;
 pub use add::{AddRequest, AddStep};
 pub use commands::{MenuState, TorrentAction};
 pub use dirs::{Dirs, Os, dirs, dirs_for, lock_library};
+pub use layout::Layout;
 pub use status::{StatusBar, UpdateOffer};
 
 use std::collections::HashSet;

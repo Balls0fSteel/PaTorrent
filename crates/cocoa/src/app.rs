@@ -25,16 +25,13 @@ use objc2_app_kit::{NSApplication, NSApplicationDelegate, NSMenu, NSSplitViewIte
 use objc2_foundation::{NSArray, NSNotification, NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer, NSURL};
 use rookparcel_core::util::lockfile::Lock;
 use rookparcel_core::{MockConfig, Session, SessionParams, TorrentId};
-use rookparcel_frontend::app::{self as fapp, Core, Events, Start, Wakeup};
-use rookparcel_frontend::columns::{Align as ColAlign, Column, RowExtra};
+use rookparcel_frontend::app::{self as fapp, Core, Events, Layout, Start, Wakeup};
 use rookparcel_frontend::prefs::Prefs;
-use rookparcel_frontend::status::{Category, status_icon};
 use rookparcel_frontend::{profile, tr};
 
 use crate::commands::Command;
-use crate::table::{self, Align, CellKind, CellValue, ColumnSpec, Hooks, TableKind};
 use crate::window::{self, Ui};
-use crate::{canvas, images, mainq, menu, paths, ui};
+use crate::{canvas, mainq, menu, paths, ui};
 
 /// What `main` hands over.
 pub struct Args {
@@ -187,6 +184,7 @@ fn start(mtm: MainThreadMarker, args: Args) {
         }
     };
     let columns = prefs.columns();
+    let layout = Layout::load(&prefs);
     // the engine's alert notification and the workers wake the main thread through this
     let wake: fapp::Wake = Arc::new(|w: Wakeup| mainq::on_main(move || on_wake(w)));
     let core = Core::start(Start {
@@ -201,14 +199,18 @@ fn start(mtm: MainThreadMarker, args: Args) {
         updates: rookparcel_frontend::update::AVAILABLE && args.demo.is_none(),
     });
     let sort = core.list().sort();
+    let alternate_rows = core.gui_options().alternate_rows;
     APP.with(|a| {
         *a.borrow_mut() = Some(App { core, demo: args.demo, started: args.started, reported: false })
     });
 
-    let ui = Rc::new(window::build(sidebar(mtm), torrent_table(&columns, sort, mtm), mtm));
+    let list = crate::list::build(&columns, sort, alternate_rows, mtm);
+    let ui = Rc::new(window::build(crate::sidebar::build(mtm), list, mtm));
     UI.with(|u| *u.borrow_mut() = Some(ui.clone()));
-    ui.window.center();
+    ui.apply_layout(&layout);
+    crate::sidebar::select_all_torrents();
     ui.window.makeKeyAndOrderFront(None);
+    ui.apply_sizes(&layout);
     NSApplication::sharedApplication(mtm).activate();
     // what the first drain inside `Core::start` found
     apply(with_core(|c| c.events()));
@@ -260,8 +262,14 @@ pub fn apply(ev: Option<Events>) {
     } else if ev.rows {
         ui.list.reload_visible();
     }
-    if ev.status {
-        update_status(&ui);
+    if ev.sidebar {
+        crate::sidebar::update();
+    }
+    if let Some(on) = ev.alternate_rows {
+        ui.list_view.setUsesAlternatingRowBackgroundColors(on);
+    }
+    if ev.status || ev.update_notice {
+        crate::statusbar::update(&ui);
     }
     if ev.title {
         if let Some(t) = peek(|c| c.title()) {
@@ -312,163 +320,6 @@ fn report_list_time(ui: &Ui) {
     }
 }
 
-/// The status bar (`Core::status_bar`); slice C adds the update link and the network part's
-/// click.
-fn update_status(ui: &Ui) {
-    let Some(s) = peek(|c| c.status_bar()) else { return };
-    let st = &ui.status;
-    st.network.setStringValue(&NSString::from_str(&s.net));
-    st.network.setToolTip(Some(&NSString::from_str(&s.net_tip)));
-    st.dht.setStringValue(&NSString::from_str(&s.dht));
-    st.down.setStringValue(&NSString::from_str(&s.down));
-    st.up.setStringValue(&NSString::from_str(&s.up));
-    st.net_icon.setImage(Some(&images::state(s.net_icon, images::is_dark(&st.net_icon))));
-}
-
-/// The torrent table: the 24 columns in the prefs' order and widths, over `list.view()`.
-fn torrent_table(
-    columns: &[(Column, i32)],
-    sort: Option<(Column, bool)>,
-    mtm: MainThreadMarker,
-) -> (Retained<objc2_app_kit::NSScrollView>, Retained<table::RPTableView>, Retained<table::RPTableSource>) {
-    let cols: Vec<Column> = columns.iter().map(|(c, _)| *c).collect();
-    let specs: Vec<ColumnSpec> = columns
-        .iter()
-        .map(|&(c, w)| ColumnSpec {
-            id: c.key().to_owned(),
-            title: c.title().to_owned(),
-            width: f64::from(w.unsigned_abs()),
-            min_width: 24.0,
-            align: if c.align() == ColAlign::Right { Align::Right } else { Align::Left },
-            kind: match c {
-                Column::Name => CellKind::IconText,
-                Column::Done => CellKind::Bar,
-                _ => CellKind::Text,
-            },
-            visible: w > 0,
-            hideable: c != Column::Name,
-            sortable: true,
-            descending_first: c.default_descending(),
-        })
-        .collect();
-    let cells = cols.clone();
-    let mut hooks = Hooks::flat(
-        || peek(|c| c.list().view().len()).unwrap_or(0),
-        move |row, i, dark| {
-            let col = cells[i];
-            peek(|c| {
-                let Some(&id) = c.list().view().get(row as usize) else { return CellValue::Empty };
-                let Some(st) = c.list().get(id) else { return CellValue::Empty };
-                let x: RowExtra<'_> = c.list().extra(id);
-                match col {
-                    Column::Name => CellValue::IconText(
-                        Some(images::state(status_icon(st, x.user_paused), dark)),
-                        st.name.clone(),
-                    ),
-                    Column::Done => CellValue::Bar(canvas::Bar {
-                        fraction: f64::from(st.progress_ppm) / 1e6,
-                        complete: st.is_finished,
-                        text: col.text(st, x),
-                    }),
-                    _ => CellValue::Text(col.text(st, x)),
-                }
-            })
-            .unwrap_or(CellValue::Empty)
-        },
-    );
-    hooks.id = Box::new(|row| peek(|c| c.list().view().get(row).map(|id| id.to_raw())).flatten());
-    hooks.rows_of = Box::new(|ids| {
-        let want: std::collections::HashSet<u64> = ids.iter().copied().collect();
-        peek(|c| {
-            c.list()
-                .view()
-                .iter()
-                .enumerate()
-                .filter(|(_, id)| want.contains(&id.to_raw()))
-                .map(|(r, _)| r)
-                .collect()
-        })
-        .unwrap_or_default()
-    });
-    let sorted = cols.clone();
-    hooks.sort = Some(Box::new(move |(i, ascending)| {
-        let col = sorted[i];
-        with_core(|c| {
-            let list = c.list_mut();
-            list.set_sort(Some((col, !ascending)));
-            // the table reloads right after this hook: the new order must be there
-            list.refresh();
-            let sort = list.sort();
-            c.prefs_mut().set_sort(sort);
-            c.save_prefs();
-        });
-    }));
-    let laid = cols.clone();
-    hooks.layout = Some(Box::new(move |order| {
-        let mut out: Vec<(Column, i32)> =
-            order.iter().map(|&(i, w, v)| (laid[i], if v { w as i32 } else { -(w as i32) })).collect();
-        for c in &laid {
-            if !out.iter().any(|(d, _)| d == c) {
-                out.push((*c, -c.default_width()));
-            }
-        }
-        with_core(|c| c.prefs_mut().set_columns(&out));
-    }));
-    hooks.activate = Some(Box::new(crate::list::activate));
-    hooks.key = Some(Box::new(|k, ids| match k {
-        table::Key::Return | table::Key::Delete => crate::list::key(k, ids),
-    }));
-    hooks.menu = Some(Box::new(move |_ids| {
-        Some(menu::build("", &menu::torrent(&labels(), false), MainThreadMarker::new()?))
-    }));
-    let sort = sort.and_then(|(col, desc)| cols.iter().position(|&c| c == col).map(|i| (i, !desc)));
-    table::table(TableKind("torrents"), specs, hooks, sort, mtm)
-}
-
-/// The sidebar's rows (slice C fills them from `Core`, with counts and labels).
-const SIDEBAR_TORRENTS: u64 = 1;
-const SIDEBAR_LABELS: u64 = 2;
-
-fn sidebar(
-    mtm: MainThreadMarker,
-) -> (
-    Retained<objc2_app_kit::NSScrollView>,
-    Retained<objc2_app_kit::NSOutlineView>,
-    Retained<table::RPTableSource>,
-) {
-    let mut spec = ColumnSpec::text("name", "", 160.0);
-    spec.kind = CellKind::IconText;
-    spec.hideable = false;
-    let mut hooks = Hooks::flat(
-        || 0,
-        |id, _, dark| match id {
-            SIDEBAR_TORRENTS => CellValue::Text(ui::text(Category::All.label())),
-            SIDEBAR_LABELS => CellValue::Text(ui::text(tr!(CatLabels))),
-            10..=14 => {
-                let c = Category::ALL[(id - 10) as usize];
-                CellValue::IconText(
-                    Some(images::ui(rookparcel_frontend::icons::category_icon(c), dark)),
-                    ui::text(c.label()),
-                )
-            }
-            20 => CellValue::IconText(
-                Some(images::ui(rookparcel_frontend::icons::UiIcon::NoLabel, dark)),
-                ui::text(tr!(CatNoLabel)),
-            ),
-            _ => CellValue::Empty,
-        },
-    );
-    hooks.children = Some(Box::new(|parent| match parent {
-        None => vec![SIDEBAR_TORRENTS, SIDEBAR_LABELS],
-        Some(SIDEBAR_TORRENTS) => (11..=14).collect(),
-        Some(SIDEBAR_LABELS) => vec![20],
-        Some(_) => Vec::new(),
-    }));
-    hooks.is_group = Some(Box::new(|id| id == SIDEBAR_TORRENTS || id == SIDEBAR_LABELS));
-    hooks.selection = Some(Box::new(crate::sidebar::select));
-    table::outline(TableKind("sidebar"), vec![spec], hooks, true, mtm)
-}
-
 /// The labels the Label submenu lists.
 pub fn labels() -> Vec<String> {
     peek(|c| c.labels()).unwrap_or_default()
@@ -509,6 +360,9 @@ pub fn run(cmd: Command) {
         Search => {
             let Some(u) = ui() else { return };
             let text = u.search.stringValue().to_string();
+            if !crate::search::filters_names() {
+                return crate::search::run(&text);
+            }
             apply(with_core(|c| {
                 c.set_search(&text);
                 c.events()
@@ -519,6 +373,7 @@ pub fn run(cmd: Command) {
                 u.toolbar.setVisible(!u.toolbar.isVisible());
             }
         }
+        UpdateNotice | NetworkStatus => crate::statusbar::run(cmd),
         ToggleSidebar => {
             if let Some(u) = ui() {
                 collapse(&u.sidebar_item, !u.sidebar_item.isCollapsed());
@@ -573,16 +428,22 @@ fn collapse(item: &NSSplitViewItem, collapsed: bool) {
 
 /// Whether a command is enabled now, and whether it shows a check mark.
 pub fn state(cmd: Command) -> (bool, Option<bool>) {
+    if cmd.needs_selection() {
+        return crate::torrent_menu::state(cmd);
+    }
     let checked = match cmd {
         Command::Profile(i) => {
             let me = profile::menu(&paths::profiles_root()).get(i as usize).is_some_and(|(_, me)| *me);
             Some(me)
         }
-        Command::SearchNames => Some(true),
+        Command::SearchNames => Some(crate::search::filters_names()),
         Command::AutoShutdown(i) => Some(i == 0),
         _ => None,
     };
-    let enabled = !cmd.needs_selection() || ui().is_some_and(|u| !u.list.selected().is_empty());
+    let enabled = match cmd {
+        Command::StartAll | Command::StopAll => peek(|c| !c.list().is_empty()).unwrap_or(false),
+        _ => true,
+    };
     (enabled, checked)
 }
 
@@ -600,6 +461,7 @@ pub fn title(cmd: Command) -> Option<String> {
         Command::ToggleStatusBar => tr!(MenuShowStatus),
         Command::ToggleWindow if u.window.isVisible() => tr!(MenuHide),
         Command::ToggleWindow => tr!(MenuShow),
+        Command::OpenFolder => crate::torrent_menu::open_folder_title(),
         _ => return None,
     };
     Some(ui::text(t))
@@ -608,6 +470,10 @@ pub fn title(cmd: Command) -> Option<String> {
 /// Before the process ends: `Core::shutdown` saves the prefs and `rss.dat` and stops the engine;
 /// this waits for it (slice G puts the closing window, D47, in front of this).
 pub fn shutdown() {
+    // the window's layout goes into the prefs `Core::shutdown` saves
+    if let Some(layout) = ui().map(|u| u.layout()) {
+        with_core(|c| layout.store(c.prefs_mut()));
+    }
     UI.with(|u| u.borrow_mut().take());
     if let Some(Some(exit)) = with_core(|c| c.shutdown()) {
         exit.wait();

@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-06_125550_1793966150
+Last updated: 2026-11-06_132853_1793968133
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -62,3 +62,4 @@ Keep archives as plain Markdown so Git diffs, repository browsing and targeted s
 | [Changelog, 2026-11-05, v1.1.75-v1.1.78](CHANGELOG-2026-11-05-v1.1.75-v1.1.78-2026-11-06_082258_1793949778.md) | `2026-11-05_104753_1793872073` through `2026-11-05_152743_1793888863` | 4 complete entries moved on 2026-11-06_082258_1793949778: versions 1.1.75-1.1.78 (GTK keys and shading, engine backlog items, update and tray fixes, search hash check and Web UI fixes), including validation. |
 | [Changelog, 2026-11-05, v1.2.0-v1.2.2](CHANGELOG-2026-11-05-v1.2.0-v1.2.2-2026-11-06_112123_1793960483.md) | `2026-11-05_183712_1793900232` through `2026-11-05_220518_1793912718` | 4 complete entries moved on 2026-11-06_112123_1793960483: the 1.2.0 release, the banned-login answer (1.2.1), the rename to Rookparcel with the PaTorrent takeover (1.2.2, D59) and the first artwork exploration, including validation. |
 | [Changelog, 2026-11-05, v1.2.3-v1.2.4 and the icon work](CHANGELOG-2026-11-05-v1.2.3-v1.2.4-icons-2026-11-06_125550_1793966150.md) | `2026-11-05_221629_1793913389` through `2026-11-05_230706_1793916426` | 8 complete entries moved on 2026-11-06_125550_1793966150: the Postal Rook icon (1.2.3, D60) and its small courier mark (1.2.4), the icon and artwork studies, the site's new colours and the rename's publication on GitHub and the wiki, including validation. |
+| [Changelog, 2026-11-06, the 1.2.5 release](CHANGELOG-2026-11-06-v1.2.5-release-2026-11-06_132853_1793968133.md) | `2026-11-06_082258_1793949778` through `2026-11-06_092025_1793953225` | 5 complete entries moved on 2026-11-06_132853_1793968133: the 1.2.4 website screenshots, version 1.2.5 and its release (CI fix, wiki screenshots, tag, publication) and the favicon hash, including validation. |

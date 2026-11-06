@@ -53,7 +53,7 @@ pub fn default_roots(env: &dyn Fn(&str) -> Option<OsString>) -> Vec<(PathBuf, Pa
             .into_iter()
             .collect();
     }
-    let home = env("HOME").filter(&absolute).map(PathBuf::from);
+    let home = env("HOME").filter(absolute).map(PathBuf::from);
     if cfg!(target_os = "macos") {
         return home
             .map(|h| pair(h.join("Library").join("Application Support"), OLD_DIR, "Rookparcel"))
@@ -62,7 +62,7 @@ pub fn default_roots(env: &dyn Fn(&str) -> Option<OsString>) -> Vec<(PathBuf, Pa
     }
     let xdg = |var: &str, fallback: &[&str]| {
         env(var)
-            .filter(&absolute)
+            .filter(absolute)
             .map(PathBuf::from)
             .or_else(|| home.clone().map(|h| fallback.iter().fold(h, |p, c| p.join(c))))
     };

@@ -70,6 +70,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.2.5" date="2026-11-06" type="stable">
+      <description>
+        <p>PaTorrent is now Rookparcel, with a new icon, the Postal Rook. Settings, torrents, profiles and portable folders from PaTorrent are taken over at the first start. A Web UI login refused after a ban is now answered as banned.</p>
+      </description>
+    </release>
     <release version="1.2.0" date="2026-11-05" type="stable">
       <description>
         <p>Profiles run several independent Rookparcels side by side, and portable mode keeps one in a folder that can move between drives and systems. A Setup Guide at the first start, help for every setting, a filter in the Files tab, binding torrent traffic to a VPN, and an optional search helper that fetches Jackett for you are new. A bug hunt fixed 37 problems, among them a Web UI login bypass and a peer message that crashed the engine.</p>

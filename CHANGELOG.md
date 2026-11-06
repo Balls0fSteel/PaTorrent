@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_082750_1793950070: Version 1.2.5: CI green again; release 1.2.5 prepared (1.2.1-1.2.5)
+
+- **Fixed:** CI on `main` failed since the rename push: the runners' clippy 1.99 flags `needless_borrows_for_generic_args` on `.filter(&absolute)` in `crates/frontend/src/legacy.rs`, which stopped the workspace's clippy at the frontend crate. Local clippy (1.90) does not have the lint; workspace clippy and the `legacy` tests pass here.
+- **Release 1.2.5**, the first as Rookparcel: [notes](docs/releases/1.2.5.md) (the rename, the Postal Rook, the takeover and how PaTorrent users move over, the 1.2.1 login fix), the Flatpak metainfo's `<release>`. GitHub's release titles up to 1.2.0 now read "Rookparcel X (released as PaTorrent)"; their notes and file names are unchanged.
+
 ## 2026-11-06_082258_1793949778: Website: screenshots of Rookparcel 1.2.4
 
 - `site/img/screenshot-windows.png` (1000x680) and `add-new-torrent.png` (751x602, also `docs/screenshots/`) are new shots of the 1.2.4 Win32 GUI: "Rookparcel 1.2.4" in the title bar (built with `ROOKPARCEL_BUILD` empty), the Postal Rook icon, the toolbar search box, a downloading torrent's General tab, and the current Add New Torrent layout with the Sintel torrent. Taken on the hidden desktop from a portable demo copy (`--demo 40`), with `TMP` and `dir.download` pointed at `D:\Downloads` so no user folder shows. `index.html`: the dialog's size and alt text follow the new layout.

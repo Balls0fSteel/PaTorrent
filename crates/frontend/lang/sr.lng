@@ -954,3 +954,4 @@ MacMinimize=Умањи
 MacZoom=Зумирај
 MacBringAllToFront=Све у први план
 MacCloseWindow=Затвори прозор
+MacPrefAdvancedNote=Називи подешавања libtorrent-а; * означава промењену вредност. Двапут кликните на вредност да бисте је променили; примењује се одмах.

@@ -954,3 +954,4 @@ MacMinimize=Ελαχιστοποίηση
 MacZoom=Ζουμ
 MacBringAllToFront=Μεταφορά όλων μπροστά
 MacCloseWindow=Κλείσιμο παραθύρου
+MacPrefAdvancedNote=Ονόματα ρυθμίσεων του libtorrent· το * σημαίνει τιμή που άλλαξε. Κάντε διπλό κλικ σε μια τιμή για να την αλλάξετε· εφαρμόζεται αμέσως.

@@ -452,6 +452,8 @@ mod tests {
                     | Command::ManageSources
                     | Command::Label(_)
                     | Command::Profile(_)
+                    // the Preferences window's controls (slice E)
+                    | Command::Pref(_)
             )
         };
         for c in crate::commands::ALL {

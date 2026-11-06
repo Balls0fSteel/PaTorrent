@@ -17,6 +17,8 @@ use crate::network;
 use crate::options::Options;
 use crate::settings::{self, Entry};
 
+pub mod live;
+
 /// How a text field is edited.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TextKind {

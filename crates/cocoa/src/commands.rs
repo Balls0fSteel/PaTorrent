@@ -81,10 +81,13 @@ pub enum Command {
     SearchSource(u16),
     SearchAllSources,
     ManageSources,
+    // slice E
+    /// A control of the Preferences window: an index into its controls (`prefs`).
+    Pref(u16),
 }
 
 /// Every command: those without a value, then those with one (at index 0).
-pub const ALL: [Command; 52] = [
+pub const ALL: [Command; 53] = [
     Command::About,
     Command::CheckUpdates,
     Command::Preferences,
@@ -137,6 +140,7 @@ pub const ALL: [Command; 52] = [
     Command::Label(0),
     Command::AutoShutdown(0),
     Command::SearchSource(0),
+    Command::Pref(0),
 ];
 
 /// A tag's value part: 16 bits. Tags start at 1, so an untagged item (0) is no command.
@@ -199,6 +203,8 @@ impl Command {
             SearchSource(i) => (50, i),
             SearchAllSources => (51, 0),
             ManageSources => (52, 0),
+            // slice E
+            Pref(i) => (100, i),
         }
     }
 
@@ -258,6 +264,8 @@ impl Command {
             50 => Some(SearchSource(v)),
             51 => plain(SearchAllSources),
             52 => plain(ManageSources),
+            // slice E
+            100 => Some(Pref(v)),
             _ => None,
         }
     }

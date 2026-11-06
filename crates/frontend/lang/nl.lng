@@ -954,3 +954,4 @@ MacMinimize=Minimaliseer
 MacZoom=Zoom
 MacBringAllToFront=Alles op voorgrond
 MacCloseWindow=Sluit venster
+MacPrefAdvancedNote=libtorrent-instellingsnamen; * markeert een gewijzigde waarde. Dubbelklik op een waarde om die te wijzigen; ze geldt meteen.

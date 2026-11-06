@@ -954,3 +954,4 @@ MacMinimize=ย่อ
 MacZoom=ซูม
 MacBringAllToFront=นำทั้งหมดมาไว้ด้านหน้า
 MacCloseWindow=ปิดหน้าต่าง
+MacPrefAdvancedNote=ชื่อการตั้งค่าของ libtorrent; * หมายถึงค่าที่เปลี่ยนแล้ว ดับเบิลคลิกที่ค่าเพื่อเปลี่ยน ค่าจะมีผลทันที

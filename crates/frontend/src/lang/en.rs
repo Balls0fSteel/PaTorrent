@@ -1406,4 +1406,7 @@ strings! {
     MacZoom = "Zoom";
     MacBringAllToFront = "Bring All to Front";
     MacCloseWindow = "Close Window";
+    /// Preferences > Advanced in the macOS GUI, under the table: there a value applies as soon as it is
+    /// entered (no OK or Apply).
+    MacPrefAdvancedNote = "libtorrent setting names; * marks a changed value. Double-click a value to change it; it applies at once.";
 }

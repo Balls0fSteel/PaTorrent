@@ -954,3 +954,4 @@ MacMinimize=Pienennä
 MacZoom=Zoomaa
 MacBringAllToFront=Tuo kaikki eteen
 MacCloseWindow=Sulje ikkuna
+MacPrefAdvancedNote=libtorrentin asetusten nimet; * merkitsee muutettua arvoa. Muuta arvoa kaksoisnapsauttamalla sitä; muutos tulee voimaan heti.

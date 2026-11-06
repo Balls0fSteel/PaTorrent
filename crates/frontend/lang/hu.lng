@@ -954,3 +954,4 @@ MacMinimize=Kis méret
 MacZoom=Nagyítás
 MacBringAllToFront=Az összes előrehozása
 MacCloseWindow=Ablak bezárása
+MacPrefAdvancedNote=libtorrent beállításnevek; a * módosított értéket jelöl. Egy érték módosításához kattintson rá duplán; azonnal érvénybe lép.

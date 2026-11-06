@@ -954,3 +954,4 @@ MacMinimize=縮到最小
 MacZoom=縮放
 MacBringAllToFront=將全部移至最前
 MacCloseWindow=關閉視窗
+MacPrefAdvancedNote=libtorrent 設定名稱；* 表示已變更的值。按兩下某個值即可變更，變更會立即生效。

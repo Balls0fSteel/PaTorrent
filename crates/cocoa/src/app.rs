@@ -543,6 +543,7 @@ pub fn run(cmd: Command) {
         Website => crate::mac::about::website(),
         Notices => crate::mac::about::notices(),
         Preferences => crate::prefs::open(),
+        Pref(i) => crate::prefs::run(i),
         SetupGuide => crate::setup_guide::open(),
         AddTorrent => crate::dialogs::add::open_files(),
         AddUrl => crate::dialogs::add_url::open(),

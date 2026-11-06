@@ -954,3 +954,4 @@ MacMinimize=Placer dans le Dock
 MacZoom=Réduire/agrandir
 MacBringAllToFront=Tout ramener au premier plan
 MacCloseWindow=Fermer la fenêtre
+MacPrefAdvancedNote=Noms des réglages de libtorrent ; * signale une valeur modifiée. Double-cliquez sur une valeur pour la modifier ; elle s'applique aussitôt.

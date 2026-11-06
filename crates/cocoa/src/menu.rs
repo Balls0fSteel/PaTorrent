@@ -454,6 +454,8 @@ mod tests {
                     | Command::Profile(_)
                     // a torrent dialog's controls (slice F)
                     | Command::Dialog(_)
+                    // the Preferences window's controls (slice E)
+                    | Command::Pref(_)
             )
         };
         for c in crate::commands::ALL {

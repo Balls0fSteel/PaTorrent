@@ -954,3 +954,4 @@ MacMinimize=Minimalizuj
 MacZoom=Powiększ
 MacBringAllToFront=Umieść wszystko na wierzchu
 MacCloseWindow=Zamknij okno
+MacPrefAdvancedNote=Nazwy ustawień libtorrent; * oznacza zmienioną wartość. Kliknij dwukrotnie wartość, aby ją zmienić; zmiana działa od razu.

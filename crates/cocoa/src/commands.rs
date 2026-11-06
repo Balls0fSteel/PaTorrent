@@ -103,6 +103,9 @@ pub enum Command {
     /// A control of a torrent dialog (`dialogs::cmd`): the dialog's number and the control's
     /// action, which `dialogs::run` hands to that dialog.
     Dialog(u16),
+    // slice E
+    /// A control of the Preferences window: an index into its controls (`prefs`).
+    Pref(u16),
 }
 
 /// The Files tab's commands (slice D), apart from [`ALL`], whose menus they are not in.
@@ -116,7 +119,7 @@ pub const FILES: [Command; 6] = [
 ];
 
 /// Every command: those without a value, then those with one (at index 0).
-pub const ALL: [Command; 53] = [
+pub const ALL: [Command; 54] = [
     Command::About,
     Command::CheckUpdates,
     Command::Preferences,
@@ -170,6 +173,7 @@ pub const ALL: [Command; 53] = [
     Command::AutoShutdown(0),
     Command::SearchSource(0),
     Command::Dialog(0),
+    Command::Pref(0),
 ];
 
 /// A tag's value part: 16 bits. Tags start at 1, so an untagged item (0) is no command.
@@ -244,6 +248,8 @@ impl Command {
             NetworkStatus => (101, 0),
             // slice F (kind 59: 53-58 are slice D's)
             Dialog(i) => (59, i),
+            // slice E (kind 60: 100-101 are slice C's)
+            Pref(i) => (60, i),
         }
     }
 
@@ -315,6 +321,8 @@ impl Command {
             101 => plain(NetworkStatus),
             // slice F
             59 => Some(Dialog(v)),
+            // slice E
+            60 => Some(Pref(v)),
             _ => None,
         }
     }
@@ -380,7 +388,7 @@ mod tests {
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
-        assert_eq!(Command::from_tag(60 << SHIFT), None);
+        assert_eq!(Command::from_tag(61 << SHIFT), None);
     }
 
     #[test]

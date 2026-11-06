@@ -954,3 +954,4 @@ MacMinimize=Simge durumuna küçült
 MacZoom=Büyüt/Küçült
 MacBringAllToFront=Tümünü öne getir
 MacCloseWindow=Pencereyi kapat
+MacPrefAdvancedNote=libtorrent ayar adları; * değiştirilmiş bir değeri gösterir. Bir değeri değiştirmek için çift tıklayın; hemen uygulanır.

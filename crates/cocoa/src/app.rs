@@ -399,6 +399,7 @@ pub fn run(cmd: Command) {
         Website => crate::mac::about::website(),
         Notices => crate::mac::about::notices(),
         Preferences => crate::prefs::open(),
+        Pref(i) => crate::prefs::run(i),
         SetupGuide => crate::setup_guide::open(),
         AddTorrent => crate::dialogs::add::open_files(),
         AddUrl => crate::dialogs::add_url::open(),
@@ -478,6 +479,8 @@ pub fn title(cmd: Command) -> Option<String> {
 /// Before the process ends: `Core::shutdown` saves the prefs and `rss.dat` and stops the engine;
 /// this waits for it (slice G puts the closing window, D47, in front of this).
 pub fn shutdown() {
+    // a Preferences field being typed in is applied first
+    crate::prefs::before_quit();
     // the window's layout goes into the prefs `Core::shutdown` saves
     if let Some(layout) = ui().map(|u| u.layout()) {
         with_core(|c| layout.store(c.prefs_mut()));

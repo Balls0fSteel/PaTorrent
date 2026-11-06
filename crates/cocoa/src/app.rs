@@ -458,7 +458,8 @@ pub fn run(cmd: Command) {
         // slice G: sheets that would hold the quit up go first
         Quit => crate::mac::lifecycle::quit(),
         Find => {
-            if crate::detail::find() {
+            // an Add New Torrent dialog in front: its file filter
+            if crate::dialogs::add::find() || crate::detail::find() {
                 return;
             }
             if let Some(u) = ui() {

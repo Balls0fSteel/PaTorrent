@@ -8,6 +8,13 @@
 //! node. A click on a row's check box (the image before its name) checks or unchecks it; a double
 //! click opens or closes a folder and checks or unchecks a file; the context menu sets the
 //! priority, checks or unchecks the selected rows (or the clicked one).
+//!
+//! The filter field above the tree keeps the files whose paths match and their folders
+//! (expanded), with "12 of 3,400 files" beside it; Select All / None and the menu then act on
+//! the shown files only. Escape in a field holding text empties it rather than cancelling;
+//! Return in it moves to the tree (rather than OK), and Edit > Find (⌘F) back to the field.
+//! Typing a name's first letters in the tree selects the next row starting with them
+//! (AppKit's type-select, through `Hooks::type_select`).
 
 use std::cell::{Cell, RefCell};
 use std::path::Path;
@@ -17,9 +24,9 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSApplication, NSBorderType, NSButton, NSComboBox, NSEvent, NSImage, NSLayoutAttribute,
-    NSLayoutConstraintOrientation, NSOutlineView, NSStackViewDistribution, NSTableCellView,
-    NSTableHeaderView, NSTextField, NSView, NSWindow,
+    NSApplication, NSBorderType, NSButton, NSColor, NSComboBox, NSEvent, NSEventType, NSFont, NSImage,
+    NSLayoutAttribute, NSLayoutConstraintOrientation, NSOutlineView, NSSearchField, NSStackViewDistribution,
+    NSTableCellView, NSTableHeaderView, NSTextField, NSView, NSWindow,
 };
 use objc2_foundation::{NSFileManager, NSFileSystemFreeSize, NSNumber, NSSize};
 use rookparcel_frontend::add::{self as fadd, AddChoice, Check, FileTree};
@@ -44,6 +51,7 @@ const NONE: u8 = 7;
 const CLICK: u8 = 8;
 const CHECK: u8 = 9;
 const UNCHECK: u8 = 10;
+const FILTER: u8 = 11;
 /// `PRIORITY + i`: `PRIORITIES[i]`.
 const PRIORITY: u8 = 16;
 
@@ -118,6 +126,30 @@ pub fn from_events(magnet_ready: bool, adds: Vec<AddRequest>) {
     }
 }
 
+thread_local! {
+    /// The open dialogs, for Edit > Find.
+    static OPEN: RefCell<Vec<Weak<Dialog>>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Edit > Find while an Add New Torrent dialog is the key window: its filter field takes the
+/// keyboard (`true`).
+pub fn find() -> bool {
+    let Some(mtm) = MainThreadMarker::new() else { return false };
+    let Some(key) = NSApplication::sharedApplication(mtm).keyWindow() else { return false };
+    let open: Vec<Rc<Dialog>> = OPEN.with(|o| {
+        let mut o = o.borrow_mut();
+        o.retain(|d| d.strong_count() > 0);
+        o.iter().filter_map(Weak::upgrade).collect()
+    });
+    match open.iter().find(|d| std::ptr::eq(&*d.window, &*key)) {
+        Some(d) => {
+            d.window.makeFirstResponder(Some(&d.filter));
+            true
+        }
+        None => false,
+    }
+}
+
 /// One open dialog; its handler owns it.
 struct Dialog {
     id: u16,
@@ -128,6 +160,9 @@ struct Dialog {
     outline: Retained<NSOutlineView>,
     /// The outline's data source (outlines keep theirs weakly).
     files: Retained<RPTableSource>,
+    filter: Retained<NSSearchField>,
+    /// "12 of 3,400 files" beside the filter, while it filters.
+    count: Retained<NSTextField>,
     save: Retained<NSComboBox>,
     name: Retained<NSTextField>,
     skip: Retained<NSButton>,
@@ -247,6 +282,16 @@ fn show(req: AddRequest, mtm: MainThreadMarker) {
     let tree = Rc::new(RefCell::new(FileTree::from_torrent(&ti)));
     let (scroll, outline, source) = files_outline(&tree, id, mtm);
     layout::activate(&[scroll.heightAnchor().constraintGreaterThanOrEqualToConstant(160.0)]);
+    // the filter field and its count, between the torrent's facts and the tree
+    let filter = ui::search_field(&ui::text(tr!(FilesFilterCue)), cmd(id, FILTER), mtm);
+    // every keystroke filters, as the Files tab does
+    filter.setSendsSearchStringImmediately(true);
+    layout::width(&filter, 200.0);
+    let count = ui::label("", mtm);
+    count.setTextColor(Some(&NSColor::secondaryLabelColor()));
+    count.setFont(Some(&NSFont::systemFontOfSize(NSFont::smallSystemFontSize())));
+    count.setHidden(true);
+    let filter_bar = layout::hstack(&[&filter, &count, &layout::spacer(mtm)], mtm);
     let select = layout::hstack(
         &[
             &ui::button_tr(tr!(MenuSelectAll), cmd(id, ALL), mtm),
@@ -254,7 +299,7 @@ fn show(req: AddRequest, mtm: MainThreadMarker) {
         ],
         mtm,
     );
-    let contents = super::column(&[&info, &scroll, &select], mtm);
+    let contents = super::column(&[&info, &filter_bar, &scroll, &select], mtm);
     // the buttons keep their size at the leading edge
     select.setAlignment(NSLayoutAttribute::CenterY);
     let right = super::section(tr!(AddContents), &contents, mtm);
@@ -288,6 +333,8 @@ fn show(req: AddRequest, mtm: MainThreadMarker) {
         window: window.clone(),
         outline,
         files: source,
+        filter,
+        count,
         save,
         name,
         skip,
@@ -301,6 +348,7 @@ fn show(req: AddRequest, mtm: MainThreadMarker) {
         toggled_by_click: Cell::new(false),
     });
     *d.observer.borrow_mut() = Some(super::on_close(&window, id, CLOSED));
+    OPEN.with(|o| o.borrow_mut().push(Rc::downgrade(&d)));
     let handler = d.clone();
     super::set_handler(id, move |act| handler.act(act));
     super::test_accept(id, OK);
@@ -351,6 +399,12 @@ fn files_outline(
         };
         tree.children(parent).into_iter().map(|n| n as u64 + 1).collect()
     }));
+    let t = tree.clone();
+    hooks.type_select = Some(Box::new(move |item| {
+        let tree = t.try_borrow().ok()?;
+        let n = item.checked_sub(1)?;
+        tree.node(n as usize).map(|row| row.name.to_owned())
+    }));
     let widths: Vec<f64> = [&name, &size, &priority].iter().map(|c| c.width).collect();
     let (scroll, outline, source) =
         table::outline(TableKind("add-files"), vec![name, size, priority], hooks, false, mtm);
@@ -388,8 +442,21 @@ impl Dialog {
     fn act(self: &Rc<Self>, act: u8) {
         let Some(mtm) = MainThreadMarker::new() else { return };
         match act {
+            // Return in the filter field goes to the tree, not to OK
+            OK if self.key_in_filter(mtm, &["\r", "\u{3}"]) => self.focus_tree(),
             OK => self.ok(mtm),
+            // Escape in a filter field holding text empties it
+            CANCEL if self.key_in_filter(mtm, &["\u{1b}"]) && !ui::value(&self.filter).is_empty() => {
+                self.filter.setStringValue(&ns(""));
+                self.filter_changed();
+            }
             CANCEL => self.answer(None, false, true),
+            FILTER => {
+                self.filter_changed();
+                if self.key_in_filter(mtm, &["\r", "\u{3}"]) {
+                    self.focus_tree();
+                }
+            }
             CLOSED => self.answer(None, false, false),
             BROWSE => self.browse(mtm),
             SAVE_IN => self.update_size(),
@@ -486,6 +553,51 @@ impl Dialog {
             },
             mtm,
         );
+    }
+
+    /// Whether the event being handled is a key press of one of `keys` while the filter field
+    /// is being edited (a button's key equivalent can come before the field sees the key).
+    fn key_in_filter(&self, mtm: MainThreadMarker, keys: &[&str]) -> bool {
+        if self.filter.currentEditor().is_none() {
+            return false;
+        }
+        let Some(e) = NSApplication::sharedApplication(mtm).currentEvent() else { return false };
+        if e.r#type() != NSEventType::KeyDown {
+            return false;
+        }
+        e.charactersIgnoringModifiers().is_some_and(|c| keys.contains(&c.to_string().as_str()))
+    }
+
+    /// The filter field's text changed: the tree shows the matching files and their folders,
+    /// all expanded, with nothing selected; the count beside the field follows.
+    fn filter_changed(&self) {
+        let text = ui::value(&self.filter);
+        let changed = self.tree.borrow_mut().set_filter(&text);
+        if changed {
+            self.outline.selectRowIndexes_byExtendingSelection(&table::index_set(Vec::new()), false);
+            self.outline.reloadData();
+            // SAFETY: nil expands every top-level item and, with true, everything below.
+            unsafe { self.outline.expandItem_expandChildren(None, true) };
+        }
+        let tree = self.tree.borrow();
+        let on = tree.filter().is_on();
+        if on {
+            let text = tr!(
+                FilesFilterCount,
+                shown = fmt::count(tree.shown_files()),
+                total = fmt::count(tree.num_files())
+            );
+            self.count.setStringValue(&ns(&text));
+        }
+        self.count.setHidden(!on);
+    }
+
+    /// The keyboard to the tree, on its first row when none is selected.
+    fn focus_tree(&self) {
+        self.window.makeFirstResponder(Some(&self.outline));
+        if self.outline.selectedRow() < 0 && self.outline.numberOfRows() > 0 {
+            self.outline.selectRowIndexes_byExtendingSelection(&table::index_set(vec![0]), false);
+        }
     }
 
     /// The node in outline row `row`.

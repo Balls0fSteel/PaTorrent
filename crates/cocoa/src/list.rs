@@ -75,6 +75,14 @@ pub fn build(
         },
     );
     hooks.id = Box::new(|row| peek(|c| c.list().view().get(row).map(|id| id.to_raw())).flatten());
+    // type-select by Name, as Finder lists do
+    hooks.type_select = Some(Box::new(|row| {
+        peek(|c| {
+            let id = c.list().view().get(row as usize)?;
+            c.list().get(*id).map(|st| st.name.clone())
+        })
+        .flatten()
+    }));
     hooks.rows_of = Box::new(|ids| {
         let want: HashSet<u64> = ids.iter().copied().collect();
         peek(|c| {

@@ -160,6 +160,10 @@ pub struct Hooks {
     pub layout: Option<Hook<Vec<ColumnState>, ()>>,
     /// A `CellKind::Check` cell was clicked: (row's id, its new state).
     pub check: Option<Hook<(u64, bool), ()>>,
+    /// The text type-select matches (typing a name's first letters selects the next row
+    /// starting with them): a row's name, by row as `cell` takes it (an item's id in a tree).
+    /// None: the list has no type-select.
+    pub type_select: Option<Hook<u64, Option<String>>>,
 }
 
 impl Hooks {
@@ -182,6 +186,7 @@ impl Hooks {
             menu: None,
             layout: None,
             check: None,
+            type_select: None,
         }
     }
 }
@@ -307,6 +312,17 @@ define_class!(
         fn column_resized(&self, _n: &NSNotification) {
             self.layout_changed();
         }
+
+        /// Type-select in a view-based table: AppKit cannot read the cells' text itself.
+        #[unsafe(method_id(tableView:typeSelectStringForTableColumn:row:))]
+        fn type_select_row(
+            &self,
+            _tv: &NSTableView,
+            _column: Option<&NSTableColumn>,
+            row: isize,
+        ) -> Option<Retained<NSString>> {
+            self.type_select(u64::try_from(row).ok())
+        }
     }
 
     unsafe impl NSOutlineViewDataSource for RPTableSource {
@@ -362,6 +378,17 @@ define_class!(
         #[unsafe(method(outlineViewSelectionDidChange:))]
         fn outline_selection_changed(&self, _n: &NSNotification) {
             self.selection_did_change();
+        }
+
+        /// Type-select in the outline, by item.
+        #[unsafe(method_id(outlineView:typeSelectStringForTableColumn:item:))]
+        fn type_select_item(
+            &self,
+            _ov: &NSOutlineView,
+            _column: Option<&NSTableColumn>,
+            item: &AnyObject,
+        ) -> Option<Retained<NSString>> {
+            self.type_select(item_id(item))
         }
     }
 );
@@ -437,6 +464,13 @@ impl RPTableSource {
             None => ov.tableColumns().firstObject()?,
         };
         self.cell_view(ov, &column, id)
+    }
+
+    /// The text type-select matches for a row (a flat table) or an item's id (a tree), whatever
+    /// column AppKit asks about: the hook's, as the list's names.
+    fn type_select(&self, id: Option<u64>) -> Option<Retained<NSString>> {
+        let f = self.ivars().hooks.type_select.as_ref()?;
+        f(id?).map(|s| NSString::from_str(&s))
     }
 
     fn group(&self, item: &AnyObject) -> bool {

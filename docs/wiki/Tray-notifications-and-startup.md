@@ -71,17 +71,33 @@ Good to know on Windows:
 - With profiles, only one profile can open `.torrent` files and magnet links. Ticking the boxes in one profile takes them over from the other; the page names the profile that has them now.
 - **Check association on startup** (off by default) makes Rookparcel ask at each start whether to take the associations back when another program has them. It does not ask when Rookparcel starts minimized at login.
 
-## GTK version (Linux, BSD, macOS)
+## GTK version (Linux, BSD)
 
-**The tray.** On Linux and BSD, Rookparcel shows a tray icon on desktops that keep one: KDE Plasma, Xfce, LXQt, Cinnamon, MATE, waybar, and GNOME with the AppIndicator extension. Its menu has the same items as on Windows. On plain GNOME without that extension there is no tray: the tray boxes do not appear in Preferences, and closing the window quits Rookparcel. On macOS the icon is in the menu bar. <kbd>Ctrl</kbd>+<kbd>Q</kbd> quits from the window.
+**The tray.** Rookparcel shows a tray icon on desktops that keep one: KDE Plasma, Xfce, LXQt, Cinnamon, MATE, waybar, and GNOME with the AppIndicator extension. Its menu has the same items as on Windows. On plain GNOME without that extension there is no tray: the tray boxes do not appear in Preferences, and closing the window quits Rookparcel. <kbd>Ctrl</kbd>+<kbd>Q</kbd> quits from the window.
 
 **Minimize to tray** needs the desktop to report that the window was minimized; where it does not (some Wayland desktops), minimizing stays a normal minimize.
 
 **Notifications** go through the desktop's own notification service, with the same "Download Complete" text.
 
-**Start at login.** **Start Rookparcel on system startup** writes an autostart entry in your user's `~/.config/autostart` folder. In a Flatpak it asks the desktop through its background permission instead, and the desktop may ask you to allow it; there only the default profile can start at login. On macOS it is a login item (System Settings > General > Login Items lists it).
+**Start at login.** **Start Rookparcel on system startup** writes an autostart entry in your user's `~/.config/autostart` folder. In a Flatpak it asks the desktop through its background permission instead, and the desktop may ask you to allow it; there only the default profile can start at login.
 
-**Associations.** The boxes make Rookparcel the default program for `.torrent` files and `magnet:` links in your user's settings. Unticking a box gives the type back to the system's default; it does not restore a program you used before. If you move an AppImage, tick the boxes again. In a Flatpak the boxes are greyed: the desktop already offers Rookparcel for both types, and you choose the default program in your desktop's settings. On macOS the boxes work only when Rookparcel runs as `Rookparcel.app`, and turning one off is done in Finder's Get Info > Open with.
+**Associations.** The boxes make Rookparcel the default program for `.torrent` files and `magnet:` links in your user's settings. Unticking a box gives the type back to the system's default; it does not restore a program you used before. If you move an AppImage, tick the boxes again. In a Flatpak the boxes are greyed: the desktop already offers Rookparcel for both types, and you choose the default program in your desktop's settings.
+
+## macOS
+
+**The menu bar.** Rookparcel puts its icon in the menu bar, where Windows has the tray. Pointing at it shows the speeds. A click hides the window or brings it back; a right-click or Control-click opens the menu: **Hide Rookparcel** / **Show Rookparcel**, **Add Torrent...**, **Add Torrent from URL...**, **Start All Torrents**, **Stop All Torrents** and **Quit Rookparcel**. The Dock icon's menu has the same items.
+
+**Closing the window.** With **Close to tray** on (the default), the window's close button (<kbd>⌘</kbd>+<kbd>W</kbd>) hides the window and Rookparcel keeps running. Click the Dock icon or the menu-bar icon to bring it back. To quit, choose **Rookparcel > Quit Rookparcel** (<kbd>⌘</kbd>+<kbd>Q</kbd>) or **Quit Rookparcel** in the menu-bar icon's menu. **Minimize to tray** hides a minimized window the same way.
+
+**Notifications** for completed downloads are macOS notifications, with the same "Download Complete" text. macOS may ask once whether Rookparcel may show notifications; if none appear, allow Rookparcel in **System Settings > Notifications**.
+
+**Start at login.** **Start Rookparcel on system startup** adds a login item for this profile (a launch agent in `~/Library/LaunchAgents`); **Start minimized** starts it hidden. On macOS 13 and later, **System Settings > General > Login Items** lists it. A login item that the older GTK version of the app made keeps working.
+
+**Associations.** The boxes work only when Rookparcel runs as `Rookparcel.app`, and only in the default profile. Turning one off is done in Finder's **Get Info > Open with**.
+
+Preferences on macOS have no **OK** button: each change applies at once.
+
+*The native macOS app is not in a published release yet.*
 
 ## Web UI and rookparcel-nox
 

@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-This page lists the keyboard shortcuts of the Windows version of Rookparcel, then what differs in the GTK version and in the Web UI. Most of them are also written beside their menu items.
+This page lists the keyboard shortcuts of the Windows version of Rookparcel, then those of the GTK version, the macOS app and the Web UI. Most of them are also written beside their menu items.
 
 ## Main window (Windows)
 
@@ -71,7 +71,7 @@ See [Preferences reference](Preferences-reference).
 
 Every menu can be reached with <kbd>Alt</kbd> and the underlined letter, as in other Windows programs: <kbd>Alt</kbd>+<kbd>F</kbd> for **File**, <kbd>Alt</kbd>+<kbd>O</kbd> for **Options**, <kbd>Alt</kbd>+<kbd>H</kbd> for **Help**, then the underlined letter of an item.
 
-## GTK version (Linux, BSD, macOS)
+## GTK version (Linux, BSD)
 
 The GTK version has these shortcuts:
 
@@ -95,8 +95,43 @@ What differs from Windows:
 - There is no shortcut for Start, Pause, Stop or Properties. Use the toolbar or the right-click menu.
 - <kbd>Ctrl</kbd>+<kbd>A</kbd> does not select all files in the Files tab.
 - <kbd>Ctrl</kbd>+<kbd>Q</kbd> quits; on Windows there is no quit shortcut.
-- On macOS the shortcuts use the <kbd>Control</kbd> key, not <kbd>Command</kbd>.
 - The Add New Torrent window's keys are the same as on Windows.
+
+## macOS
+
+The macOS app uses <kbd>⌘</kbd> (Command) where Windows uses <kbd>Ctrl</kbd>, and the Mac's own keys where they differ. The shortcuts are written beside the menu items in the menu bar.
+
+| Keys | What they do |
+|---|---|
+| <kbd>⌘</kbd>+<kbd>,</kbd> | **Rookparcel > Preferences** |
+| <kbd>⌘</kbd>+<kbd>G</kbd> | **Rookparcel > Setup Guide** |
+| <kbd>⌘</kbd>+<kbd>H</kbd> | Hides Rookparcel (<kbd>⌥</kbd>+<kbd>⌘</kbd>+<kbd>H</kbd> hides the other apps) |
+| <kbd>⌘</kbd>+<kbd>Q</kbd> | **Quit Rookparcel**, also when the window would close to the menu bar |
+| <kbd>⌘</kbd>+<kbd>O</kbd> | **File > Add Torrent...** |
+| <kbd>⌘</kbd>+<kbd>U</kbd> | **File > Add Torrent from URL...** |
+| <kbd>⌘</kbd>+<kbd>N</kbd> | **File > Create New Torrent...** |
+| <kbd>⌘</kbd>+<kbd>W</kbd> | **File > Close Window**: with **Close to tray** on, Rookparcel keeps running in the menu bar |
+| <kbd>⌘</kbd>+<kbd>A</kbd> | **Edit > Select All**: every torrent in the list, or the text in a box |
+| <kbd>⌘</kbd>+<kbd>F</kbd> | **Edit > Find...**: moves to the search box on the toolbar; in the Files tab, to its filter box |
+| <kbd>⌥</kbd>+<kbd>⌘</kbd>+<kbd>T</kbd> | **View > Show Toolbar** |
+| <kbd>⌃</kbd>+<kbd>⌘</kbd>+<kbd>S</kbd> | **View > Show Sidebar** (the category list) |
+| <kbd>⌃</kbd>+<kbd>⌘</kbd>+<kbd>F</kbd> | **View > Enter Full Screen** |
+| <kbd>⌘</kbd>+<kbd>S</kbd> | **Torrent > Start** |
+| <kbd>⇧</kbd>+<kbd>⌘</kbd>+<kbd>P</kbd> | **Torrent > Pause** |
+| <kbd>⌘</kbd>+<kbd>T</kbd> | **Torrent > Stop** |
+| <kbd>⌘</kbd>+<kbd>⌫</kbd>, or <kbd>⌫</kbd> in the list | **Torrent > Remove** |
+| <kbd>⌥</kbd>+<kbd>⌘</kbd>+<kbd>⌫</kbd> | **Torrent > Remove And Delete Data**: removes the torrents and deletes their files |
+| <kbd>⌘</kbd>+<kbd>I</kbd>, or <kbd>Return</kbd> in the list | **Torrent > Properties** |
+| <kbd>⌘</kbd>+<kbd>M</kbd> | **Window > Minimize** |
+
+What differs from Windows:
+
+- Preferences is <kbd>⌘</kbd>+<kbd>,</kbd>, as in other Mac apps, not <kbd>Ctrl</kbd>+<kbd>P</kbd>.
+- Remove is <kbd>⌘</kbd>+<kbd>⌫</kbd> (Delete), and Properties <kbd>⌘</kbd>+<kbd>I</kbd>.
+- The right-click menu of the torrent list has the same items as the **Torrent** menu; Control-click opens it too.
+- **Edit** has the usual Undo, Cut, Copy and Paste for text boxes.
+
+*The native macOS app is not in a published release yet.*
 
 ## Web UI
 

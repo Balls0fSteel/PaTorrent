@@ -146,7 +146,7 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
         alternate_rows: true,
     });
     if !crate::integration::associations_settable() {
-        // macOS outside Rookparcel.app: no bundle id to register, autostart still works
+        // a Flatpak: the package's own entry declares the types, autostart still works
         fix_fields(&mut pages, &["assoc.torrent", "assoc.magnet", "ui.check_assoc"]);
     }
     let stack = gtk::Stack::new();

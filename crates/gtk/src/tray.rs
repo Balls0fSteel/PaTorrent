@@ -1,11 +1,7 @@
 //! The tray icon: the application icon where the desktop keeps such icons, the rates as its
 //! tooltip, a left click that shows or hides the window, and the Win32 tray's menu: Show /
-//! Hide, Add Torrent, Add Torrent from URL, Start All, Stop All, Exit. [`Tray`] is one API over
-//! two backends:
-//!
-//! - on macOS an `NSStatusItem` in the menu bar (`crate::tray_macos`, PLAN.md D23), through the
-//!   Objective-C runtime;
-//! - elsewhere a StatusNotifierItem (below).
+//! Hide, Add Torrent, Add Torrent from URL, Start All, Stop All, Exit. [`Tray`] is a
+//! StatusNotifierItem (the native Mac GUI, `rookparcel-mac`, has its own status item).
 //!
 //! The StatusNotifierItem is the freedesktop.org / KDE tray protocol that KDE
 //! Plasma, Xfce, LXQt, Cinnamon, MATE, waybar and GNOME with the AppIndicator extension show,
@@ -23,9 +19,6 @@
 
 use rookparcel_frontend::tr;
 
-#[cfg(target_os = "macos")]
-pub use crate::tray_macos::Tray;
-#[cfg(not(target_os = "macos"))]
 pub use sni::Tray;
 
 /// A menu entry the owner acts on.
@@ -61,7 +54,7 @@ pub struct Hooks {
     /// Whether the window is on screen (the menu says Hide then).
     pub window_visible: Box<dyn Fn() -> bool>,
     /// The tray came (true) or went (false): a StatusNotifierWatcher took the item or left the
-    /// bus; on macOS it comes once, when the status item is in the menu bar.
+    /// bus.
     pub shown: Box<dyn Fn(bool)>,
 }
 
@@ -78,8 +71,7 @@ pub fn entry_text(c: Command, window_visible: bool) -> &'static str {
     }
 }
 
-/// The StatusNotifierItem backend: every Unix but macOS.
-#[cfg(not(target_os = "macos"))]
+/// The StatusNotifierItem.
 mod sni {
     use std::cell::{Cell, RefCell};
     use std::collections::HashMap;

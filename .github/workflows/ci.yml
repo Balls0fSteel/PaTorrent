@@ -45,9 +45,9 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-  # macOS (PLAN.md D23): the whole workspace on Apple silicon, with Secure Transport for TLS and
-  # Homebrew's GTK 4 for rookparcel-gtk. Intel Macs are built (and linked) only, without the GTK
-  # GUI: Homebrew on this runner has arm64 libraries only.
+  # macOS (D52, D61): the whole workspace on Apple silicon, with Secure Transport for TLS and the
+  # native AppKit GUI (crates/cocoa, docs/MACOS_GUI.md); nothing from Homebrew. rookparcel-gtk is
+  # a stub on macOS, as on Windows. Intel Macs are built (and linked) too.
   macos:
     runs-on: macos-15
     steps:
@@ -57,12 +57,11 @@ jobs:
           components: clippy
           targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - run: brew install gtk4 pkgconf
       - run: cargo clippy --workspace --all-targets -- -D warnings
       # every test binary runs, so one failure (a flaky one: PLAN Known TODOs "macOS") does not
       # hide the results of the others
       - run: cargo test --workspace --no-fail-fast
-      - run: cargo build --workspace --exclude rookparcel-gtk --target x86_64-apple-darwin
+      - run: cargo build --workspace --target x86_64-apple-darwin
       # the native GUI (crates/cocoa, docs/MACOS_GUI.md) is linted for Intel Macs too; the
       # workspace's clippy above covers arm64
       - run: cargo clippy -p rookparcel-mac --all-targets --target x86_64-apple-darwin -- -D warnings
@@ -82,9 +81,9 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - run: cargo check --workspace --all-targets
       # the native macOS GUI's AppKit code builds only for macOS: type-checked here with the
-      # minimum Rust (nothing links on Linux)
+      # minimum Rust (nothing links on Linux), with the GTK crate's macOS stub
       - run: rustup target add aarch64-apple-darwin
-      - run: cargo check -p rookparcel-mac --target aarch64-apple-darwin
+      - run: cargo check -p rookparcel-mac -p rookparcel-gtk --target aarch64-apple-darwin
 
   # the release build, its slow tests and reports, and the installer that release.yml makes
   # (built, installed and uninstalled here too, so installer breakage shows before a tag)

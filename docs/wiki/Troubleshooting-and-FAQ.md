@@ -49,7 +49,7 @@ The **General** tab shows "Your address as trackers see it:", which tells you wh
 The programs are not code-signed, so the systems warn the first time:
 
 - **Windows:** "Windows protected your PC". Click **More info**, then **Run anyway**.
-- **macOS:** the app is refused until you open it with a right-click > **Open**.
+- **macOS:** the app is refused until you open it with a right-click > **Open**. If macOS offers no Open button, click **Open Anyway** in **System Settings > Privacy & Security**.
 
 To make sure a file is the one that was published, compare its checksum with the `SHA256SUMS` file of the release. Details for each platform are in [Installing Rookparcel](Installing-Rookparcel).
 
@@ -84,11 +84,18 @@ Rookparcel saves the torrent list and progress, tells the trackers it stopped an
 
 See the table at the end of [Searching for torrents on Windows](Searching-for-torrents-on-Windows) and [Searching for torrents](Searching-for-torrents).
 
-## Linux and macOS notes
+## Linux notes
 
-- **No tray icon on GNOME.** Plain GNOME has no tray; install the AppIndicator extension, or use Rookparcel without one (closing the window then quits it). See [Tray, notifications and startup](Tray-notifications-and-startup#gtk-version-linux-bsd-macos).
+- **No tray icon on GNOME.** Plain GNOME has no tray; install the AppIndicator extension, or use Rookparcel without one (closing the window then quits it). See [Tray, notifications and startup](Tray-notifications-and-startup#gtk-version-linux-bsd).
 - **Minimize to tray does nothing** on some Wayland desktops, which do not report that a window was minimized.
 - **Logging out on Xfce** does not wait for Rookparcel to save; quit it first.
+
+## macOS notes
+
+- **Closing the window does not quit.** With **Close to tray** on (the default), the window hides and Rookparcel keeps running in the menu bar. Quit with <kbd>⌘</kbd>+<kbd>Q</kbd>. See [Tray, notifications and startup](Tray-notifications-and-startup#macos).
+- **No notifications.** Allow Rookparcel in **System Settings > Notifications**.
+- **Auto Shutdown does not sleep or shut down the Mac.** Allow Rookparcel to control "loginwindow" in **System Settings > Privacy & Security > Automation**. See [Auto Shutdown](Auto-shutdown).
+- **Settings gone after replacing the GTK version.** The new app takes over the old `gtk` folder only while no `mac` folder exists. If a `mac` folder was made first, quit Rookparcel and see [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files#macos).
 
 ## Where the logs are
 

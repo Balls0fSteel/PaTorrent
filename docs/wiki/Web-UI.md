@@ -7,7 +7,7 @@ There are two ways to get it:
 - **From the Windows program.** `rookparcel.exe` serves the page itself, over the window's own torrents, while it runs (**Options > Preferences > Web UI**).
 - **From `rookparcel-nox`**, the headless Rookparcel, started with `--webui` ([Running rookparcel-nox](Running-rookparcel-nox)). This is the way on Linux, BSD and macOS servers, and on a Windows PC that should keep downloading without a window.
 
-The GTK program (Linux, BSD, macOS) does not serve a Web UI of its own. It can control a `rookparcel-nox` through [Remote control](Remote-control) instead.
+The GTK program (Linux, BSD) and the macOS app do not serve a Web UI of their own. Both can control a `rookparcel-nox` through [Remote control](Remote-control) instead.
 
 ## Turning it on in the Windows program
 

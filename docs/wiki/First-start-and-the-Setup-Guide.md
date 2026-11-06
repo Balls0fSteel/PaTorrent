@@ -84,7 +84,8 @@ Choose **Options > Setup Guide**, or press <kbd>Ctrl</kbd>+<kbd>G</kbd>. The gui
 
 ## GTK and the Web UI
 
-- The GTK version (Linux, the BSDs, macOS) has the same guide, with the same pages, at the first start of each profile and under **Options > Setup Guide** (<kbd>Ctrl</kbd>+<kbd>G</kbd>).
+- The GTK version (Linux, the BSDs) has the same guide, with the same pages, at the first start of each profile and under **Options > Setup Guide** (<kbd>Ctrl</kbd>+<kbd>G</kbd>).
+- The macOS app has it too, under **Rookparcel > Setup Guide** (<kbd>⌘</kbd>+<kbd>G</kbd>).
 - `rookparcel-nox` and the Web UI have no guide. Set them up in the Web UI's Preferences: see [Web UI](Web-UI) and [Running rookparcel-nox](Running-rookparcel-nox).
 
 ## After the guide

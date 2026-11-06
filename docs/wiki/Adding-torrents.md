@@ -103,7 +103,7 @@ Rookparcel adds a new file a few seconds after it stops changing, without the Ad
 
 The same page can keep a copy of every added `.torrent` file (**Store .torrents in:**). See [Disk and storage](Disk-and-storage) and the [Preferences reference](Preferences-reference).
 
-## In the GTK version (Linux, BSD, macOS)
+## In the GTK version (Linux, BSD)
 
 - The same menu items, shortcuts and Add New Torrent window.
 - **Add Torrent from URL** fills in a link from the clipboard the same way. Text that is not a `magnet:` link or an `http(s)://` address gives "Not a link Rookparcel can add".

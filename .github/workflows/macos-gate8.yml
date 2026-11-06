@@ -20,21 +20,20 @@ jobs:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 40
     env:
-      CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
-      CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
       OUT: ${{ github.workspace }}/gate8
+      # the native GUI's process, as `ps -o command` shows it (grep's [R] keeps grep itself out)
+      GUI: "[R]ookparcel.app/Contents/MacOS/Rookparcel"
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: brew install gtk4 adwaita-icon-theme librsvg pkgconf
-      - run: cargo build --release --locked -p rookparcel-gtk -p rookparcel-nox
+      # the native GUI (crates/cocoa, D61) for the runner's own architecture
+      - run: cargo build --release --locked -p rookparcel-mac -p rookparcel-nox
       - name: Rookparcel.app
         run: |
           family=$(tr -d '[:space:]' < assets/patina-icons/app-icon.txt)
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
-          python3 .github/scripts/macos_bundle.py app \
-            --binary target/release/rookparcel-gtk \
-            --prefix "$(brew --prefix)" \
+          python3 .github/scripts/macos_bundle.py native \
+            --binary target/release/rookparcel-mac \
             --icon-dir "assets/patina-icons/exports/app/$family" \
             --app-id io.github.balls0fsteel.Rookparcel \
             --version "$version" \
@@ -67,10 +66,10 @@ jobs:
           "$stick/Rookparcel.app/Contents/MacOS/Rookparcel" --profile work > "$OUT/portable-work.log" 2>&1 &
           sleep 25
           perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/portable.png" || echo "::warning::screencapture failed"
-          ps -axo pid,command | grep '[p]atorrent-gtk' | tee "$OUT/portable-ps.txt"
+          ps -axo pid,command | grep "$GUI" | tee "$OUT/portable-ps.txt"
           find "$stick" -maxdepth 3 -not -path '*/Rookparcel.app/*' | sort | tee "$OUT/portable-files.txt"
           ls -la "$HOME/Library/Application Support" 2>&1 | tee -a "$OUT/portable-files.txt"
-          pkill -f rookparcel-gtk || true
+          pkill -f Rookparcel.app/Contents/MacOS/Rookparcel || true
           sleep 3
           ok=1
           for f in rookparcel.lock metadata.pack profiles/work/rookparcel.lock profiles/work/metadata.pack; do
@@ -101,7 +100,7 @@ jobs:
           "$m1/Rookparcel.app/Contents/MacOS/Rookparcel" > "$OUT/exfat-gui.log" 2>&1 &
           sleep 20
           perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/exfat.png" || echo "::warning::screencapture failed"
-          pkill -f rookparcel-gtk || true
+          pkill -f Rookparcel.app/Contents/MacOS/Rookparcel || true
           sleep 3
           mkdir -p "$m1/Downloads"
           head -c 300000 /dev/urandom > "$m1/Downloads/data.bin"
@@ -128,7 +127,8 @@ jobs:
           [ "$ok" = 1 ]
 
       # What Preferences > "Start Rookparcel at login" writes, once per profile
-      # (crates/gtk/src/macos.rs launch_agent): launchd starts both, each in its profile
+      # (rookparcel_frontend::integration::mac::launch_agent): launchd starts both, each in its
+      # profile
       - name: LaunchAgents per profile
         if: always()
         run: |
@@ -136,7 +136,7 @@ jobs:
           agents="$RUNNER_TEMP/agents"
           mkdir -p "$agents"
           # autostart is set from a profile that exists (else its "Create it?" question waits)
-          mkdir -p "$HOME/Library/Application Support/Rookparcel/profiles/work/gtk"
+          mkdir -p "$HOME/Library/Application Support/Rookparcel/profiles/work/mac"
           for p in default work; do
             label=io.github.balls0fsteel.Rookparcel
             args="<string>$app</string>"
@@ -159,15 +159,15 @@ jobs:
           sleep 25
           perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/launchagents.png" || echo "::warning::screencapture failed"
           launchctl list | grep -i rookparcel | tee "$OUT/launchagents.txt"
-          ps -axo pid,command | grep '[p]atorrent-gtk' | tee -a "$OUT/launchagents.txt"
+          ps -axo pid,command | grep "$GUI" | tee -a "$OUT/launchagents.txt"
           for f in "$agents"/*.plist; do launchctl bootout "gui/$(id -u)" "$f" || true; done
-          pkill -f rookparcel-gtk || true
+          pkill -f Rookparcel.app/Contents/MacOS/Rookparcel || true
           find "$HOME/Library/Application Support/Rookparcel" | sort | tee -a "$OUT/launchagents.txt"
           grep -q -- '--profile work' "$OUT/launchagents.txt"
-          [ "$(grep -c '[p]atorrent-gtk' "$OUT/launchagents.txt")" -ge 2 ]
+          [ "$(grep -c "$GUI" "$OUT/launchagents.txt")" -ge 2 ]
           # each started its own library
-          grep -q 'Rookparcel/gtk/rookparcel.lock$' "$OUT/launchagents.txt"
-          grep -q 'Rookparcel/profiles/work/gtk/rookparcel.lock$' "$OUT/launchagents.txt"
+          grep -q 'Rookparcel/mac/rookparcel.lock$' "$OUT/launchagents.txt"
+          grep -q 'Rookparcel/profiles/work/mac/rookparcel.lock$' "$OUT/launchagents.txt"
 
       # (before the step below, which may hang on Gatekeeper)
       - uses: actions/upload-artifact@v7
@@ -202,9 +202,8 @@ jobs:
             t 30 open "$dl/Rookparcel.app" 2>&1 || echo "(open: $?)"
             sleep 25
             t 20 screencapture -x "$OUT/translocated-$name.png" || echo "::warning::screencapture failed"
-            ps -axo pid,command | grep -i -E '[p]atorrent|[A]ppTranslocation' | tee "$OUT/translocated-$name.txt"
+            ps -axo pid,command | grep -E "$GUI|[A]ppTranslocation" | tee "$OUT/translocated-$name.txt"
             ls -la "$dl" | tee -a "$OUT/translocated-$name.txt"
-            pkill -f rookparcel-gtk || true
             pkill -f Rookparcel.app || true
             pkill -x CoreServicesUIAgent || true
             sleep 2
@@ -212,7 +211,7 @@ jobs:
           try plain 0083
           try approved 00c3
           try spctl-add 0083
-          if grep -l 'AppTranslocation.*rookparcel-gtk' "$OUT"/translocated-*.txt; then
+          if grep -l 'AppTranslocation.*Rookparcel.app/Contents/MacOS/Rookparcel' "$OUT"/translocated-*.txt; then
             echo "the GUI ran translocated: see its screenshot for the notice"
           else
             echo "::warning::the GUI never ran translocated here"

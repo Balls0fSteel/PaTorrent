@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests of macos_bundle.py that run anywhere (Windows included): the `native` and `app`
+"""Tests of macos_bundle.py that run anywhere (Windows included): the `native` and `check`
 commands with --dry-run (FakeTools answers otool from a fixture and prints what would change
 files), and the Info.plist.
 
@@ -15,7 +15,7 @@ import shutil
 import sys
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -99,6 +99,8 @@ class Native(unittest.TestCase):
         self.assertEqual(p['CFBundleDocumentTypes'][0]['CFBundleTypeExtensions'], ['torrent'])
         self.assertEqual(p['UTImportedTypeDeclarations'][0]['UTTypeIdentifier'], 'org.bittorrent.torrent')
         self.assertIn('NSLocalNetworkUsageDescription', p)
+        # Auto Shutdown's Sleep and Shut Down are Apple events to loginwindow
+        self.assertTrue(p['NSAppleEventsUsageDescription'])
 
     def test_two_binaries_are_one_universal(self):
         code, log, app = self.native(self.bins)
@@ -126,16 +128,24 @@ class Native(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn('outside the bundle', log)
 
-    def test_the_gtk_command_is_still_there(self):
-        out = io.StringIO()
-        old = sys.argv
-        sys.argv = ['macos_bundle.py', 'app', '--help']
-        try:
-            with redirect_stdout(out), self.assertRaises(SystemExit):
-                mb.main()
-        finally:
-            sys.argv = old
-        self.assertIn('--prefix', out.getvalue())
+    def test_check_passes_a_system_only_binary(self):
+        code, log = self.run_cmd(['check', self.bins[0]])
+        self.assertEqual(code, 0, log)
+        self.assertIn('minimum macOS 11.0', log)
+
+    def test_the_gtk_commands_are_gone(self):
+        # the GTK bundle (`app`) and its library walk (`deps`) left with D61
+        self.assertFalse(os.path.exists(os.path.join(HERE, 'macos_launcher.c')))
+        for cmd in ('app', 'deps'):
+            old = sys.argv
+            sys.argv = ['macos_bundle.py', cmd, '--help']
+            try:
+                with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                    with self.assertRaises(SystemExit) as e:
+                        mb.main()
+            finally:
+                sys.argv = old
+            self.assertEqual(e.exception.code, 2, cmd)
 
 
 if __name__ == '__main__':

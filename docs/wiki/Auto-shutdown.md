@@ -57,9 +57,10 @@ The **Logger** tab records each step: "Auto Shutdown: done, ... in 30 s", "Auto 
 
 If Windows refuses, a message says so, such as "Could not shut down the computer:" with the reason. A Windows account that is not allowed to shut the computer down gets this message.
 
-## In the GTK window and rookparcel-nox
+## In the GTK window, on macOS and in rookparcel-nox
 
-- **GTK window** (Linux, BSD, macOS): the same **Options > Auto Shutdown** menu and countdown. Standby, Hibernate and Shut Down go through the system's login manager (systemd-logind), which may ask for your password. Where it is missing (the BSDs, a system without systemd) or does not allow an action, those items are grey and only the Quit items are left.
+- **GTK window** (Linux, BSD): the same **Options > Auto Shutdown** menu and countdown. Standby, Hibernate and Shut Down go through the system's login manager (systemd-logind), which may ask for your password. Where it is missing (the BSDs, a system without systemd) or does not allow an action, those items are grey and only the Quit items are left.
+- **macOS**: the same **Options > Auto Shutdown** menu and countdown. Standby and Shut Down ask macOS to sleep or shut down as the Apple menu does, with Apple events to the system's "loginwindow". The first time, macOS may ask whether Rookparcel may control "loginwindow"; click **OK**. If you refused, allow it in **System Settings > Privacy & Security > Automation**. The Hibernate items are grey: macOS has no hibernation of its own to ask for. *The native macOS app is not in a published release yet.*
 - **Web UI**: has no Auto Shutdown.
 - **rookparcel-nox**: start it with `--exit-when-done downloads` or `--exit-when-done all` to exit, with its state saved, once nothing is downloading, or nothing is downloading or seeding either. It waits until something has run first, as the menu does, and exits a few seconds after the work is done. It never puts the computer to sleep or shuts it down. See [Running rookparcel-nox](Running-rookparcel-nox).
 

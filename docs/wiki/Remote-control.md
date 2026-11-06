@@ -35,7 +35,7 @@ A remote window connects to `rookparcel-nox`. The Windows program's own Web UI (
 
 The dialog remembers the host, port, user name and the HTTPS choice for next time. The password is never stored; you type it at each connection.
 
-In the GTK program (Linux, BSD, macOS) it is the same: **File > Connect to Remote...**, or `rookparcel-gtk --remote`. Each remote window is a program of its own, so you can have your local window and several servers open at once.
+In the GTK program (Linux, BSD) it is the same: **File > Connect to Remote...**, or `rookparcel-gtk --remote`. The macOS app has **File > Connect to Remote...** too. Each remote window is a program of its own, so you can have your local window and several servers open at once.
 
 ## Without HTTPS
 

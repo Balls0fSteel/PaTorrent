@@ -239,14 +239,6 @@ pub fn run() -> ExitCode {
     if remote {
         flags |= gio::ApplicationFlags::NON_UNIQUE;
     }
-    // Finder's double click on a `.torrent` reaches a running or starting app as an `odoc`
-    // Apple event, which GTK's macOS delegate (`application:openFiles:`) turns into
-    // `g_application_open`; that needs HANDLES_OPEN, and refuses the files without it. The
-    // command line still goes to `command-line` (GApplication gives HANDLES_COMMAND_LINE the
-    // arguments when both are set). Links come as `GURL` events: `crate::macos`
-    if cfg!(target_os = "macos") {
-        flags |= gio::ApplicationFlags::HANDLES_OPEN;
-    }
     // one instance per profile; `APP_ID` stays the icon's, the desktop entry's and the tray's
     let id = profile::current().app_id(APP_ID);
     // X11's WM_CLASS is the program name, which a dock matches to a desktop entry's name: the
@@ -265,8 +257,8 @@ pub fn run() -> ExitCode {
         quit_app();
     });
     // A plain SIGTERM (systemd ending the session or the unit, `kill`) or Ctrl+C in a terminal
-    // quits the same way instead of dying with the resume data unsaved. 15 and 2 on Linux,
-    // the BSDs and macOS.
+    // quits the same way instead of dying with the resume data unsaved. 15 and 2 on Linux and
+    // the BSDs.
     for signal in [15, 2] {
         glib::unix_signal_add_local(signal, || {
             quit_app();
@@ -319,21 +311,10 @@ pub fn run() -> ExitCode {
         }
         glib::ExitCode::SUCCESS
     });
-    // only emitted with HANDLES_OPEN (macOS, above): files by path, any link by its URI
-    app.connect_open(|app, files, _hint| {
-        app.activate();
-        for f in files {
-            match f.uri_scheme().as_deref() {
-                Some("magnet" | "http" | "https") => open(Source::Link(f.uri().into())),
-                _ => open(Source::File(f.clone())),
-            }
-        }
-    });
     let code = app.run();
     // the search helper (D51) never outlives the program
     rookparcel_frontend::search::helper::shutdown();
-    // the tray goes while the toolkit is still there, not with the thread's locals at exit: on
-    // macOS its NSStatusItem leaves the menu bar through AppKit
+    // the tray goes while the toolkit is still there, not with the thread's locals at exit
     TRAY.with(|t| t.borrow_mut().take());
     // Auto Shutdown's Shut Down, once the session has saved its state and stopped
     if let Some(Err(e)) = shutdown::take_after_exit().map(shutdown::perform) {
@@ -391,15 +372,6 @@ fn create_profile(app: &gtk::Application, then: impl FnOnce() + 'static) {
     });
 }
 
-/// A URL from a `GURL` Apple event (a `magnet:` link clicked in a browser), through the `open`
-/// signal like Finder's files.
-#[cfg(target_os = "macos")]
-fn open_url(url: String) {
-    if let Some(app) = gio::Application::default() {
-        app.open(&[gio::File::for_uri(&url)], "");
-    }
-}
-
 /// The few style rules the window needs: the Done column's taller bar with its text on it.
 const CSS: &str = "
 progressbar.pa-done, progressbar.pa-done > trough { min-width: 16px; }
@@ -454,12 +426,6 @@ fn startup(app: &gtk::Application) {
     }
     // a test aid: the windows drawn into PNGs and their texts listed (`ROOKPARCEL_SNAPSHOTS`)
     crate::snapshots::start();
-    // after GTK's own startup (the signal runs its class handler first), which set its
-    // NSApplication delegate and called `finishLaunching`
-    #[cfg(target_os = "macos")]
-    if let Err(e) = crate::macos::install_url_handler(open_url) {
-        eprintln!("magnet: links from other programs will not arrive: {e}");
-    }
     let quit = gio::SimpleAction::new("quit", None);
     quit.connect_activate(|_, _| quit_app());
     app.add_action(&quit);
@@ -490,9 +456,9 @@ fn startup(app: &gtk::Application) {
     for (name, f) in actions {
         let a = gio::SimpleAction::new(name, None);
         a.connect_activate(move |_, _| f());
-        // a menu item is for a named profile's entry (the default one has the package's), not on macOS
+        // a menu item is for a named profile's entry (the default one has the package's)
         if name == "profile-shortcut" {
-            a.set_enabled(!profile::current().is_default() && cfg!(not(target_os = "macos")));
+            a.set_enabled(!profile::current().is_default());
         }
         app.add_action(&a);
     }
@@ -1406,12 +1372,6 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     } else {
         window.present();
     }
-    // macOS runs a quarantined app from a random read-only copy, where a portable marker beside
-    // Rookparcel.app is not seen (D42): say how to get it run from where it is
-    #[cfg(target_os = "macos")]
-    if std::env::current_exe().ok().and_then(|e| e.parent().map(profile::translocated)) == Some(true) {
-        info(tr!(MacTranslocated));
-    }
     start_tray(&window);
     if START_MINIMIZED.with(|m| m.get()) {
         // into the tray once it is there (`tray_shown`); minimized until then, or for good
@@ -1440,13 +1400,12 @@ fn tray() -> Option<Rc<Tray>> {
     TRAY.with(|t| t.borrow().clone())
 }
 
-/// A tray is on screen (a StatusNotifierWatcher took the item; on macOS the status item is in
-/// the menu bar).
+/// A tray is on screen (a StatusNotifierWatcher took the item).
 fn tray_shown() -> bool {
     tray().is_some_and(|t| t.shown())
 }
 
-/// The tray icon (on the session bus; the menu bar on macOS), and "Minimize to tray" on the
+/// The tray icon (on the session bus), and "Minimize to tray" on the
 /// window's state.
 fn start_tray(window: &gtk::ApplicationWindow) {
     let tray = Tray::start(crate::tray::Hooks {

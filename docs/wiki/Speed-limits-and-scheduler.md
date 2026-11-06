@@ -127,7 +127,7 @@ When a desktop window serves the Web UI (Preferences > Web UI in the window), th
 
 ## In the GTK window and the Web UI
 
-- **GTK window** (Linux, BSD, macOS): the same Preferences pages, the same **Bandwidth Allocation** submenu in the torrent menu, the same scheduler table, edited the same way.
+- **GTK window** (Linux, BSD): the same Preferences pages, the same **Bandwidth Allocation** submenu in the torrent menu, the same scheduler table, edited the same way.
 - **Web UI**: the same pages under its **Preferences**, and the same **Bandwidth Allocation** submenu. Its status bar shows a global limit in brackets after the rate while one is set, and the automatic cap the same way as the window.
 - **rookparcel-nox** without the Web UI: `--dl-limit KIB` and `--ul-limit KIB` set the global limits at start (0 = unlimited). The scheduler, the seeding goal and the alternative limits are set in the Web UI's **Preferences**.
 

@@ -150,6 +150,11 @@ define_class!(
         fn did_miniaturize(&self, _n: &objc2_foundation::NSNotification) {
             crate::mac::lifecycle::did_miniaturize();
         }
+
+        #[unsafe(method(windowDidDeminiaturize:))]
+        fn did_deminiaturize(&self, _n: &objc2_foundation::NSNotification) {
+            crate::mac::lifecycle::did_deminiaturize();
+        }
     }
 
     unsafe impl NSToolbarDelegate for RPWindowDelegate {
@@ -533,7 +538,15 @@ impl Ui {
             details,
             status: self.status_visible(),
             sidebar_width: sidebar.then(|| self.sidebar_item.viewController(mtm).view().frame().size.width),
-            detail_height: details.then(|| self.details_item.viewController(mtm).view().frame().size.height),
+            // the split's lower pane, as `apply_sizes` sets it: the tab view controller's own view
+            // is 16 points taller than the pane, which made the details grow at every start
+            detail_height: details.then(|| {
+                let panes = self.content_split.splitView().subviews();
+                match panes.iter().nth(1) {
+                    Some(pane) => pane.frame().size.height,
+                    None => self.details_item.viewController(mtm).view().frame().size.height,
+                }
+            }),
             tab,
             // a full-screen frame is not the window's own
             frame: (!full_screen).then(|| self.window.stringWithSavedFrame().to_string()),

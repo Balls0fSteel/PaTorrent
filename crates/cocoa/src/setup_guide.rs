@@ -156,10 +156,10 @@ pub fn open() {
         let Some(o) = answer else { return };
         let old = crate::mac::integration();
         if o.integration != old {
+            // (the message is whole: `set_integration` puts it in `ErrDesktopIntegration`)
             if let Err(e) = crate::mac::set_integration(&old, &o.integration) {
                 if let Some(mtm) = MainThreadMarker::new() {
-                    let text = tr!(ErrDesktopIntegration, error = e);
-                    dialogs::tell(None, ui::Style::Error, &text, "", mtm);
+                    dialogs::tell(None, ui::Style::Error, &e, "", mtm);
                 }
             }
         }
@@ -179,7 +179,7 @@ pub fn first_start(mut options: Options, prefs: Prefs, then: impl FnOnce() + 'st
             let set = crate::mac::integration();
             if o.integration.normalized() != set.normalized() {
                 if let Err(e) = crate::mac::set_integration(&set, &o.integration) {
-                    eprintln!("{}", tr!(ErrDesktopIntegration, error = e));
+                    eprintln!("{e}");
                 }
             }
         }

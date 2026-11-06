@@ -167,7 +167,7 @@ fn show(r: Remembered, remote: bool, mtm: MainThreadMarker) {
 
     // its size is its controls' (the text boxes scroll)
     let window = super::window(&ui::text(tr!(CreateTitle)), &root, None, false, mtm);
-    window.setInitialFirstResponder(Some(&source));
+    super::focus_first(&window, &source);
     let d = Rc::new(Dialog {
         id,
         window: window.clone(),

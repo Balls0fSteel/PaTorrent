@@ -182,6 +182,16 @@ pub fn window(
     w
 }
 
+/// Starts `w` with the text field `first` focused, with Tab and Shift-Tab going through its
+/// fields. Without a key view loop of its own (AppKit builds none when an initial first
+/// responder is set) Tab stayed in the first field and only selected its text. Not for a
+/// dialog that starts with no field focused: the loop's first field would take Return from the
+/// default button.
+pub fn focus_first(w: &NSWindow, first: &NSView) {
+    w.setInitialFirstResponder(Some(first));
+    w.setAutorecalculatesKeyViewLoop(true);
+}
+
 /// A vertical stack whose views take its whole width.
 pub fn column(views: &[&NSView], mtm: MainThreadMarker) -> Retained<NSStackView> {
     let s = layout::vstack(views, mtm);

@@ -101,7 +101,7 @@ pub(super) fn show(
     let root = dialogs::column(&views, mtm);
     root.setSpacing(14.0);
     let window = dialogs::window(&ui::text(title), &root, None, false, mtm);
-    window.setInitialFirstResponder(Some(&url));
+    dialogs::focus_first(&window, &url);
     let parent = parent.filter(|p| p.isVisible());
     let d = Rc::new(Dialog {
         id,

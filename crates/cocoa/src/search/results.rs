@@ -264,7 +264,7 @@ fn build(mtm: MainThreadMarker) -> Rc<Results> {
     root.setDistribution(NSStackViewDistribution::Fill);
     let window =
         dialogs::window(&ui::text(tr!(SearchTitle)), &root, Some(NSSize::new(900.0, 560.0)), true, mtm);
-    window.setInitialFirstResponder(Some(&query));
+    dialogs::focus_first(&window, &query);
     let r = Rc::new(Results {
         id,
         window: window.clone(),

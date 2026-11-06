@@ -2484,7 +2484,8 @@
         parent = n;
       }
       const n = nodes.length;
-      nodes.push({ name: parts[parts.length - 1] || f.path, depth: parts.length - 1, parent, dir: false, i: f.i, size: f.size, wanted: true, prio: 4 });
+      const lp = (parts.join("/") || f.path).toLowerCase();
+      nodes.push({ name: parts[parts.length - 1] || f.path, depth: parts.length - 1, parent, dir: false, i: f.i, size: f.size, wanted: true, prio: 4, lp });
       (parent < 0 ? roots : nodes[parent].children).push(n);
       byFile.push(n);
     }
@@ -2522,27 +2523,50 @@
       }
     }
   }
-  function filesOf(tree, n, out) {
+  /// With `shown` (the filter's flags), shown nodes only.
+  function filesOf(tree, n, out, shown) {
+    if (shown && !shown[n]) return out;
     const node = tree.nodes[n];
-    if (node.dir) for (const c of node.children) filesOf(tree, c, out);
+    if (node.dir) for (const c of node.children) filesOf(tree, c, out, shown);
     else out.push(node);
     return out;
   }
-  function visibleRows(tree) {
+  function visibleRows(tree, shown) {
     const rows = [];
     const walk = (n) => {
+      if (shown && !shown[n]) return;
       rows.push(n);
       const node = tree.nodes[n];
-      if (node.dir && node.expanded) for (const c of node.children) walk(c);
+      if (node.dir && (shown || node.expanded)) for (const c of node.children) walk(c);
     };
     for (const r of tree.roots) walk(r);
     return rows;
+  }
+  /// The Add dialog's filter (FileFilter's rule): null, or {shown: flags of the matching files
+  /// and their folders, files: how many match}.
+  function addFilterShown(tree, text) {
+    const words = text.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!words.length) return null;
+    const { nodes } = tree;
+    const shown = new Uint8Array(nodes.length);
+    let files = 0;
+    for (let n = 0; n < nodes.length; n++) {
+      const node = nodes[n];
+      if (!node.dir && words.every((w) => node.lp.includes(w))) {
+        shown[n] = 1;
+        files++;
+      }
+    }
+    for (let n = nodes.length - 1; n >= 0; n--) if (shown[n] && nodes[n].parent >= 0) shown[nodes[n].parent] = 1;
+    return { shown, files };
   }
 
   function openAddDialog(file, info, setup) {
     const tree = buildTree(info.files || []);
     summarize(tree);
-    addState = { file, info, tree, sel: new Set(), anchor: -1 };
+    // cur: the keyboard's row; typed: the type-ahead's letters
+    addState = { file, info, tree, sel: new Set(), anchor: -1, filter: null, cur: -1, typed: "", typedAt: 0 };
+    $("add-filter").value = "";
     const dirs = $("add-dirs");
     dirs.textContent = "";
     for (const d of setup.save_in || []) {
@@ -2588,7 +2612,13 @@
     const st = addState;
     if (!st) return;
     const { tree } = st;
+    const shown = st.filter && st.filter.shown;
+    const count = $("add-filter-count");
+    count.hidden = !st.filter;
+    const fmtN = (v) => v.toLocaleString("en-US");
+    setTextIf(count, st.filter ? T("FilesFilterCount", { shown: fmtN(st.filter.files), total: fmtN(tree.byFile.length) }) : "");
     const el = $("add-files");
+    const top = el.scrollTop;
     el.textContent = "";
     const table = document.createElement("table");
     table.className = "dt af";
@@ -2602,11 +2632,12 @@
     }
     thead.appendChild(hr);
     const tbody = document.createElement("tbody");
-    for (const n of visibleRows(tree)) {
+    for (const n of visibleRows(tree, shown)) {
       const node = tree.nodes[n];
       const tr = document.createElement("tr");
       tr.dataset.n = n;
-      if (st.sel.has(n)) tr.className = "sel";
+      tr.classList.toggle("sel", st.sel.has(n));
+      tr.classList.toggle("cur", st.cur === n);
       const tdc = document.createElement("td");
       tdc.className = "c";
       const cb = document.createElement("input");
@@ -2623,7 +2654,7 @@
       if (node.dir) {
         const tg = document.createElement("span");
         tg.className = "tg";
-        tg.textContent = node.expanded ? "▾" : "▸";
+        tg.textContent = shown || node.expanded ? "▾" : "▸";
         tdn.appendChild(tg);
       } else {
         const sp = document.createElement("span");
@@ -2642,7 +2673,67 @@
     }
     table.append(thead, tbody);
     el.appendChild(table);
+    el.scrollTop = top;
     updateAddSize();
+  }
+  function markAddRows() {
+    const st = addState;
+    for (const r of $("add-files").querySelectorAll("tr[data-n]")) {
+      const n = Number(r.dataset.n);
+      r.classList.toggle("sel", st.sel.has(n));
+      r.classList.toggle("cur", st.cur === n);
+    }
+  }
+  function setAddFilter(text) {
+    const st = addState;
+    if (!st) return;
+    st.filter = addFilterShown(st.tree, text);
+    st.sel = new Set();
+    st.anchor = -1;
+    st.cur = -1;
+    st.typed = "";
+    renderAddFiles();
+    $("add-files").scrollTop = 0;
+  }
+  /// The keyboard's row to node n, selected (with `extend`, from the anchor).
+  function moveAddCursor(n, extend) {
+    const st = addState;
+    st.cur = n;
+    if (extend && st.anchor >= 0) {
+      const rows = visibleRows(st.tree, st.filter && st.filter.shown);
+      const a = rows.indexOf(st.anchor);
+      const b = rows.indexOf(n);
+      st.sel = new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1));
+    } else {
+      st.sel = new Set([n]);
+      st.anchor = n;
+    }
+    markAddRows();
+    const tr = $("add-files").querySelector('tr[data-n="' + n + '"]');
+    if (tr) tr.scrollIntoView({ block: "nearest" });
+  }
+  /// Type-ahead, as frontend::typeahead: a second between letters; one letter again cycles.
+  function addTypeAhead(ch) {
+    const st = addState;
+    const now = Date.now();
+    if (now - st.typedAt > 1000) st.typed = "";
+    st.typedAt = now;
+    st.typed += ch.toLowerCase();
+    const typed = [...st.typed];
+    const same = typed.every((c) => c === typed[0]);
+    const prefix = same ? typed[0] : st.typed;
+    const rows = visibleRows(st.tree, st.filter && st.filter.shown);
+    if (!rows.length) return;
+    const at = rows.indexOf(st.cur);
+    let from = same ? at + 1 : Math.max(at, 0);
+    if (from >= rows.length) from = 0;
+    for (let k = 0; k < rows.length; k++) {
+      const n = rows[(from + k) % rows.length];
+      if (st.tree.nodes[n].name.toLowerCase().startsWith(prefix)) {
+        moveAddCursor(n, false);
+        return;
+      }
+    }
   }
   function updateAddSize() {
     const { tree, info } = addState;
@@ -2651,16 +2742,22 @@
     const all = info.size || 0;
     setText("add-t-size", sel === all ? fmtSize(all) : T("AddSizeSelected", { selected: fmtSize(sel), total: fmtSize(all) }));
   }
+  /// While filtering: the shown files only.
   function setChecks(nodesIdx, on) {
-    const { tree } = addState;
-    for (const n of nodesIdx) for (const f of filesOf(tree, n, [])) f.wanted = on;
+    const { tree, filter } = addState;
+    for (const n of nodesIdx) for (const f of filesOf(tree, n, [], filter && filter.shown)) f.wanted = on;
     summarize(tree);
     renderAddFiles();
   }
+  /// A row fully checked turns off, anything else on.
+  function checkTurnsOn(n) {
+    const { tree, filter } = addState;
+    return !filesOf(tree, n, [], filter && filter.shown).every((f) => f.wanted);
+  }
   function setPriority(nodesIdx, p) {
-    const { tree } = addState;
+    const { tree, filter } = addState;
     for (const n of nodesIdx) {
-      for (const f of filesOf(tree, n, [])) {
+      for (const f of filesOf(tree, n, [], filter && filter.shown)) {
         if (p === 0) f.wanted = false;
         else {
           f.wanted = true;
@@ -2676,16 +2773,16 @@
     if (!tr || !addState) return;
     const n = Number(tr.dataset.n);
     const node = addState.tree.nodes[n];
+    addState.cur = n;
     if (ev.target.tagName === "INPUT") {
       // the check box: a row fully on turns off, anything else turns on; with the row
       // selected among others, all of them follow
       const rows = addState.sel.has(n) ? [...addState.sel] : [n];
-      const on = node.dir ? !(node.wanted === node.files) : !node.wanted;
-      setChecks(rows, on);
+      setChecks(rows, checkTurnsOn(n));
       return;
     }
     if (ev.target.classList.contains("tg") && node.dir) {
-      node.expanded = !node.expanded;
+      if (!addState.filter) node.expanded = !node.expanded;
       renderAddFiles();
       return;
     }
@@ -2694,22 +2791,94 @@
       if (st.sel.has(n)) st.sel.delete(n);
       else st.sel.add(n);
       st.anchor = n;
-    } else if (ev.shiftKey && st.anchor >= 0) {
-      const rows = visibleRows(st.tree);
-      const a = rows.indexOf(st.anchor);
-      const b = rows.indexOf(n);
-      st.sel = new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1));
-    } else {
-      st.sel = new Set([n]);
-      st.anchor = n;
+      markAddRows();
+    } else moveAddCursor(n, ev.shiftKey);
+  });
+  // the list's keys: arrows, Home, End, Space checks, letters type ahead, Ctrl+F the filter
+  $("add-files").addEventListener("keydown", (ev) => {
+    const st = addState;
+    if (!st) return;
+    const mod = ev.ctrlKey || ev.metaKey;
+    if (mod && !ev.altKey && !ev.shiftKey && ev.key.toLowerCase() === "f") {
+      ev.preventDefault();
+      $("add-filter").focus();
+      $("add-filter").select();
+      return;
     }
-    for (const r of $("add-files").querySelectorAll("tr[data-n]")) r.classList.toggle("sel", st.sel.has(Number(r.dataset.n)));
+    if (mod || ev.altKey) return;
+    const shown = st.filter && st.filter.shown;
+    const rows = visibleRows(st.tree, shown);
+    if (!rows.length) return;
+    const at = rows.indexOf(st.cur);
+    const go = (i) => moveAddCursor(rows[Math.max(0, Math.min(rows.length - 1, i))], ev.shiftKey);
+    const node = at >= 0 ? st.tree.nodes[st.cur] : null;
+    switch (ev.key) {
+      case "ArrowDown":
+        go(at + 1);
+        break;
+      case "ArrowUp":
+        go(at < 0 ? 0 : at - 1);
+        break;
+      case "Home":
+        go(0);
+        break;
+      case "End":
+        go(rows.length - 1);
+        break;
+      case " ": {
+        if (!node) {
+          go(0);
+          break;
+        }
+        const sel = st.sel.has(st.cur) ? [...st.sel] : [st.cur];
+        setChecks(sel, checkTurnsOn(st.cur));
+        break;
+      }
+      case "ArrowLeft":
+      case "ArrowRight": {
+        if (!node) break;
+        const open = (ev.key === "ArrowRight") !== RTL;
+        if (node.dir && !shown && node.expanded !== open) {
+          node.expanded = open;
+          renderAddFiles();
+        } else if (!open && node.parent >= 0) moveAddCursor(node.parent, false);
+        else if (open && node.dir && node.children.length) {
+          const first = node.children.find((c) => !shown || shown[c]);
+          if (first !== undefined) moveAddCursor(first, false);
+        }
+        break;
+      }
+      default:
+        if ([...ev.key].length !== 1) return;
+        addTypeAhead(ev.key);
+    }
+    ev.preventDefault();
+  });
+  // Escape empties the box (closes only when empty); Enter goes to the list, not OK
+  $("add-filter").addEventListener("input", () => setAddFilter($("add-filter").value));
+  $("add-filter").addEventListener("keydown", (ev) => {
+    const box = $("add-filter");
+    if (ev.key === "Escape") {
+      if (!box.value) return;
+      box.value = "";
+      setAddFilter("");
+    } else if (ev.key === "Enter") {
+      const st = addState;
+      if (st && st.cur < 0) {
+        const rows = visibleRows(st.tree, st.filter && st.filter.shown);
+        if (rows.length) moveAddCursor(rows[0], false);
+      }
+      $("add-files").focus();
+    } else return;
+    ev.preventDefault();
+    ev.stopPropagation();
   });
   $("add-files").addEventListener("dblclick", (ev) => {
     const tr = ev.target.closest("tr[data-n]");
     if (!tr || !addState || ev.target.tagName === "INPUT") return;
     const node = addState.tree.nodes[Number(tr.dataset.n)];
-    if (node.dir) {
+    // filtering: folders stay open
+    if (node.dir && !addState.filter) {
       node.expanded = !node.expanded;
       renderAddFiles();
     }
@@ -2720,11 +2889,7 @@
     if (!tr || !addState) return;
     const n = Number(tr.dataset.n);
     const st = addState;
-    if (!st.sel.has(n)) {
-      st.sel = new Set([n]);
-      st.anchor = n;
-      for (const r of $("add-files").querySelectorAll("tr[data-n]")) r.classList.toggle("sel", st.sel.has(Number(r.dataset.n)));
-    }
+    if (!st.sel.has(n)) moveAddCursor(n, false);
     const rows = [...st.sel];
     openMenu(
       [

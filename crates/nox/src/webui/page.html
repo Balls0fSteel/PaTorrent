@@ -118,7 +118,11 @@
           <b data-t="AddSize">Size:</b><span id="add-t-size"></span>
           <b data-t="AddDate">Date:</b><span id="add-t-date"></span>
         </div>
-        <div id="add-files" role="tree"></div>
+        <div class="add-filter">
+          <input id="add-filter" type="search" placeholder="Filter files" data-t-ph="FilesFilterCue" autocomplete="off" aria-label="Filter files" data-t-aria="FilesFilterCue">
+          <span id="add-filter-count" hidden></span>
+        </div>
+        <div id="add-files" role="tree" tabindex="0" aria-label="Torrent Contents" data-t-aria="AddContents"></div>
         <div class="add-btns">
           <button type="button" id="add-all" data-t="MenuSelectAll">Select All</button>
           <button type="button" id="add-none" data-t="MenuSelectNone">Select None</button>

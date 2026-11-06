@@ -3,6 +3,7 @@
 use std::mem::zeroed;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use rookparcel_frontend::typeahead;
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW, CreateSolidBrush,
@@ -12,18 +13,19 @@ use windows_sys::Win32::UI::Controls::{
     CDDS_ITEMPOSTPAINT, CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDDS_SUBITEM, CDIS_FOCUS, CDIS_SELECTED,
     CDRF_DODEFAULT, CDRF_NOTIFYITEMDRAW, CDRF_NOTIFYPOSTPAINT, CDRF_NOTIFYSUBITEMDRAW, HDF_SORTDOWN,
     HDF_SORTUP, HDI_FORMAT, HDITEMW, HDM_GETITEMW, HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM, LVCF_TEXT,
-    LVCF_WIDTH, LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVIR_BOUNDS, LVIR_LABEL, LVIS_FOCUSED, LVIS_SELECTED,
-    LVITEMW, LVM_DELETECOLUMN, LVM_GETCOLUMNORDERARRAY, LVM_GETCOLUMNWIDTH, LVM_GETHEADER, LVM_GETITEMRECT,
-    LVM_GETITEMSTATE, LVM_GETNEXTITEM, LVM_GETSELECTEDCOUNT, LVM_GETSUBITEMRECT, LVM_INSERTCOLUMNW,
-    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMCOUNT, LVM_SETITEMSTATE, LVNI_FOCUSED, LVNI_SELECTED,
-    LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_HEADERDRAGDROP, LVS_EX_LABELTIP, LVS_OWNERDATA,
-    LVS_REPORT, LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSICF_NOINVALIDATEALL, LVSICF_NOSCROLL,
-    NMLVCUSTOMDRAW, WC_LISTVIEWW,
+    LVCF_WIDTH, LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVFI_PARTIAL, LVFI_STRING, LVFI_SUBSTRING, LVFI_WRAP,
+    LVIR_BOUNDS, LVIR_LABEL, LVIS_FOCUSED, LVIS_SELECTED, LVITEMW, LVM_DELETECOLUMN, LVM_GETCOLUMNORDERARRAY,
+    LVM_GETCOLUMNWIDTH, LVM_GETHEADER, LVM_GETITEMRECT, LVM_GETITEMSTATE, LVM_GETNEXTITEM,
+    LVM_GETSELECTEDCOUNT, LVM_GETSUBITEMRECT, LVM_INSERTCOLUMNW, LVM_SETEXTENDEDLISTVIEWSTYLE,
+    LVM_SETITEMCOUNT, LVM_SETITEMSTATE, LVNI_FOCUSED, LVNI_SELECTED, LVS_EX_DOUBLEBUFFER,
+    LVS_EX_FULLROWSELECT, LVS_EX_HEADERDRAGDROP, LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT,
+    LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSICF_NOINVALIDATEALL, LVSICF_NOSCROLL, NMLVCUSTOMDRAW,
+    NMLVFINDITEMW, WC_LISTVIEWW,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::GetFocus;
 use windows_sys::Win32::UI::WindowsAndMessaging::{WS_CHILD, WS_CLIPSIBLINGS, WS_EX_CLIENTEDGE, WS_TABSTOP};
 
-use crate::util::{child, send, wide};
+use crate::util::{child, from_wide_ptr, send, wide};
 
 /// Creates an owner-data report list view (the frontend keeps the rows).
 pub unsafe fn create_report(parent: HWND, id: usize, header_drag: bool) -> HWND {
@@ -106,6 +108,52 @@ pub unsafe fn set_count(lv: HWND, n: usize) {
     unsafe {
         send(lv, LVM_SETITEMCOUNT, n, (LVSICF_NOINVALIDATEALL | LVSICF_NOSCROLL) as isize);
     }
+}
+
+/// The answer to an owner-data list's `LVN_ODFINDITEMW` (`lparam` is its `NMLVFINDITEMW`) over
+/// `count` rows named `name(row)`: the row's index, or -1. The list sends it for its type-ahead
+/// and for `LVM_FINDITEMW`. For type-ahead the list gathers the letters typed within a moment
+/// itself and asks for a prefix (`LVFI_SUBSTRING | LVFI_WRAP`) from the row after the focused
+/// one, or from the focused one once it holds several letters; one letter typed over and over
+/// comes as that letter alone, so it cycles through the rows starting with it, as in Explorer.
+/// Searches by item data or position find nothing: the rows have neither.
+pub unsafe fn answer_find_item<S: AsRef<str>>(
+    lparam: LPARAM,
+    count: usize,
+    mut name: impl FnMut(usize) -> S,
+) -> LRESULT {
+    unsafe {
+        answer_find_item_by(lparam, count, |i, text, whole| name_matches(name(i).as_ref(), text, whole))
+    }
+}
+
+/// [`answer_find_item`] for rows with more than one name to be found by: `matches(row, text,
+/// whole)` says whether the row has a name that starts with `text` (or, with `whole`, is
+/// `text`), ignoring case ([`name_matches`]).
+pub unsafe fn answer_find_item_by(
+    lparam: LPARAM,
+    count: usize,
+    mut matches: impl FnMut(usize, &str, bool) -> bool,
+) -> LRESULT {
+    let fi = unsafe { &*(lparam as *const NMLVFINDITEMW) };
+    let flags = fi.lvfi.flags;
+    let partial = flags & (LVFI_PARTIAL | LVFI_SUBSTRING) != 0;
+    if flags & LVFI_STRING == 0 && !partial || fi.lvfi.psz.is_null() {
+        return -1;
+    }
+    let text = unsafe { from_wide_ptr(fi.lvfi.psz) };
+    if text.is_empty() || count == 0 {
+        return -1;
+    }
+    let start = usize::try_from(fi.iStart).ok().filter(|&s| s < count).unwrap_or(0);
+    let found = (start..count).chain(0..start).find(|&i| matches(i, &text, !partial));
+    let wrap = flags & LVFI_WRAP != 0;
+    found.filter(|&i| wrap || i >= start).map_or(-1, |i| i as LRESULT)
+}
+
+/// Whether `name` starts with `text` (or, with `whole`, is `text`), ignoring case.
+pub fn name_matches(name: &str, text: &str, whole: bool) -> bool {
+    typeahead::starts_with(name, text) && (!whole || name.chars().count() == text.chars().count())
 }
 
 /// How many rows are selected (without walking them).

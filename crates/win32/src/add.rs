@@ -33,20 +33,21 @@ use windows_sys::Win32::Storage::FileSystem::{
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
     BP_CHECKBOX, BST_CHECKED, BST_UNCHECKED, CBS_CHECKEDNORMAL, CBS_MIXEDNORMAL, CBS_UNCHECKEDNORMAL,
-    CloseThemeData, DrawThemeBackground, HIMAGELIST, ILC_COLOR24, ILC_MASK, ImageList_AddMasked,
-    ImageList_Create, ImageList_Destroy, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH, LVCFMT_LEFT, LVCFMT_RIGHT,
-    LVCOLUMNW, LVHITTESTINFO, LVHT_ONITEMICON, LVHT_ONITEMSTATEICON, LVIF_IMAGE, LVIF_INDENT, LVIF_STATE,
-    LVIF_TEXT, LVIS_STATEIMAGEMASK, LVM_ENSUREVISIBLE, LVM_GETCOLUMNWIDTH, LVM_INSERTCOLUMNW,
+    CloseThemeData, DrawThemeBackground, EM_SETCUEBANNER, EM_SETSEL, HIMAGELIST, ILC_COLOR24, ILC_MASK,
+    ImageList_AddMasked, ImageList_Create, ImageList_Destroy, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH, LVCFMT_LEFT,
+    LVCFMT_RIGHT, LVCOLUMNW, LVHITTESTINFO, LVHT_ONITEMICON, LVHT_ONITEMSTATEICON, LVIF_IMAGE, LVIF_INDENT,
+    LVIF_STATE, LVIF_TEXT, LVIS_STATEIMAGEMASK, LVM_ENSUREVISIBLE, LVM_GETCOLUMNWIDTH, LVM_INSERTCOLUMNW,
     LVM_SETCALLBACKMASK, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETIMAGELIST,
-    LVM_SUBITEMHITTEST, LVN_GETDISPINFOW, LVN_KEYDOWN, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
-    LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT, LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSIL_SMALL,
-    LVSIL_STATE, NM_CLICK, NM_CUSTOMDRAW, NM_DBLCLK, NM_RETURN, NMHDR, NMITEMACTIVATE, NMLVCUSTOMDRAW,
-    NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
+    LVM_SUBITEMHITTEST, LVN_GETDISPINFOW, LVN_KEYDOWN, LVN_ODFINDITEMW, LVS_EX_DOUBLEBUFFER,
+    LVS_EX_FULLROWSELECT, LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT, LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS,
+    LVSIL_SMALL, LVSIL_STATE, NM_CLICK, NM_CUSTOMDRAW, NM_DBLCLK, NM_RETURN, NMHDR, NMITEMACTIVATE,
+    NMLVCUSTOMDRAW, NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
     TTM_SETMAXTIPWIDTH, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, OpenThemeDataForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    EnableWindow, SetFocus, VK_ADD, VK_LEFT, VK_RIGHT, VK_SPACE, VK_SUBTRACT,
+    EnableWindow, GetFocus, GetKeyState, SetFocus, VK_ADD, VK_CONTROL, VK_LEFT, VK_RIGHT, VK_SPACE,
+    VK_SUBTRACT,
 };
 use windows_sys::Win32::UI::Shell::{
     SHFILEINFOW, SHGFI_OPENICON, SHGFI_SMALLICON, SHGFI_SYSICONINDEX, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW,
@@ -55,14 +56,14 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON,
     BeginDeferWindowPos, CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDCONTROLRECT, CB_GETLBTEXT, CB_GETLBTEXTLEN,
     CBN_EDITCHANGE, CBN_SELCHANGE, CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_SORT, CreatePopupMenu, CreateWindowExW,
-    DLGTEMPLATE, DeferWindowPos, DestroyMenu, DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDeferWindowPos,
-    EndDialog, GWL_STYLE, GetClientRect, GetCursorPos, GetDlgItem, GetWindowLongPtrW, GetWindowPlacement,
-    GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MINMAXINFO, MapDialogRect, SIZE_MINIMIZED,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
-    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
-    TrackPopupMenu, WINDOWPLACEMENT, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_GETMINMAXINFO,
-    WM_INITDIALOG, WM_NOTIFY, WM_SIZE, WS_BORDER, WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP, WS_TABSTOP,
-    WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
+    DLGTEMPLATE, DeferWindowPos, DestroyMenu, DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL,
+    EndDeferWindowPos, EndDialog, GWL_STYLE, GetClientRect, GetCursorPos, GetDlgItem, GetWindowLongPtrW,
+    GetWindowPlacement, GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MINMAXINFO, MapDialogRect,
+    SIZE_MINIMIZED, SW_HIDE, SW_SHOWNA, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
+    SWP_NOZORDER, SetForegroundWindow, SetWindowLongPtrW, SetWindowPos, SetWindowTextW, ShowWindow,
+    TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WINDOWPLACEMENT, WM_COMMAND,
+    WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_GETMINMAXINFO, WM_INITDIALOG, WM_NOTIFY, WM_SIZE, WS_BORDER,
+    WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
 };
 use windows_sys::core::w;
 
@@ -73,6 +74,8 @@ use crate::util::{
 };
 
 /// Static control styles (in `System::SystemServices`, a feature we do not otherwise need).
+const SS_RIGHT: u32 = 0x2;
+const SS_CENTERIMAGE: u32 = 0x200;
 const SS_NOPREFIX: u32 = 0x80;
 /// The static takes the mouse (so a tooltip over it sees it) instead of passing it to the dialog.
 const SS_NOTIFY: u32 = 0x100;
@@ -95,6 +98,10 @@ const ID_NONE: u16 = 113;
 const ID_AGAIN: u16 = 114;
 const ID_BOX_SAVE: u16 = 115;
 const ID_BOX_CONTENTS: u16 = 116;
+/// The file filter over the list (D50's rule), its × and its "12 of 3,400 files".
+const ID_FILTER: u16 = 117;
+const ID_FILTER_CLEAR: u16 = 118;
+const ID_FILTER_COUNT: u16 = 119;
 
 /// How a control follows the window's size: moved or grown with the width or the height.
 const MOVE_X: u8 = 1;
@@ -103,7 +110,7 @@ const MOVE_Y: u8 = 4;
 const GROW_Y: u8 = 8;
 /// A drop-down: its height is the open one (`GetWindowRect` gives the closed one).
 const DROP: u8 = 16;
-const ANCHORS: [(u16, u8); 16] = [
+const ANCHORS: [(u16, u8); 19] = [
     (ID_BOX_SAVE, GROW_X),
     (ID_SAVE, GROW_X | DROP),
     (ID_BROWSE, MOVE_X),
@@ -116,6 +123,9 @@ const ANCHORS: [(u16, u8); 16] = [
     (ID_T_DATE, GROW_X),
     (ID_ALL, MOVE_X),
     (ID_NONE, MOVE_X),
+    (ID_FILTER, GROW_X),
+    (ID_FILTER_CLEAR, MOVE_X),
+    (ID_FILTER_COUNT, MOVE_X),
     (ID_FILES, GROW_X | GROW_Y),
     (ID_AGAIN, MOVE_Y),
     (IDOK as u16, MOVE_X | MOVE_Y),
@@ -223,7 +233,7 @@ fn template() -> Vec<u16> {
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS;
     // 2.2.1's layout: one column, the contents' list the whole width. Everything is 7 units
     // in from the box around it; the two boxes and OK / Cancel keep 7 to the dialog's edge.
-    let mut t = Template::new(420, 300);
+    let mut t = Template::new(420, 317);
     t.item(BUTTON, ID_BOX_SAVE, GROUP, [7, 4, 406, 78], tr!(AddSaveIn));
     t.item(COMBOBOX, ID_SAVE, COMBO, [14, 16, 370, 150], "");
     t.item(BUTTON, ID_BROWSE, PUSH, [388, 15, 18, 14], "...");
@@ -235,7 +245,7 @@ fn template() -> Vec<u16> {
     t.item(COMBOBOX, ID_LABEL, COMBO | CBS_SORT as u32, [165, 52, 241, 120], "");
     t.item(BUTTON, ID_START, CHECK, [14, 67, 100, 10], tr!(AddStart));
     t.item(BUTTON, ID_TOP, CHECK, [122, 67, 160, 10], tr!(AddTopOfQueue));
-    t.item(BUTTON, ID_BOX_CONTENTS, GROUP, [7, 88, 406, 186], tr!(AddContents));
+    t.item(BUTTON, ID_BOX_CONTENTS, GROUP, [7, 88, 406, 203], tr!(AddContents));
     t.item(STATIC, 0xffff, C, [14, 100, 36, 9], tr!(AddTorrentName));
     t.item(STATIC, ID_T_NAME, VALUE, [54, 100, 352, 9], "");
     t.item(STATIC, 0xffff, C, [14, 111, 36, 9], tr!(AddComment));
@@ -247,10 +257,21 @@ fn template() -> Vec<u16> {
     t.item(STATIC, ID_T_DATE, VALUE, [54, 133, 244, 9], "");
     t.item(BUTTON, ID_ALL, PUSH, [302, 130, 50, 14], tr!(MenuSelectAll));
     t.item(BUTTON, ID_NONE, PUSH, [356, 130, 50, 14], tr!(MenuSelectNone));
-    t.item(Class::Name("SysListView32"), ID_FILES, list, [14, 148, 392, 119], "");
-    t.item(BUTTON, ID_AGAIN, CHECK, [7, 281, 220, 10], tr!(AddDontShowAgain));
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 279, 50, 14], tr!(BtnOk));
-    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 279, 50, 14], tr!(BtnCancel));
+    // the file filter over the list (its hint set by `init`); the × and the count show while
+    // it filters (`filter_changed`)
+    t.item(EDIT, ID_FILTER, LINE, [14, 148, 274, 13], "");
+    t.item(BUTTON, ID_FILTER_CLEAR, WS_CHILD | BS_PUSHBUTTON as u32, [290, 148, 14, 13], "\u{00d7}");
+    t.item(
+        STATIC,
+        ID_FILTER_COUNT,
+        WS_CHILD | SS_RIGHT | SS_CENTERIMAGE | SS_NOPREFIX,
+        [308, 148, 98, 13],
+        "",
+    );
+    t.item(Class::Name("SysListView32"), ID_FILES, list, [14, 165, 392, 119], "");
+    t.item(BUTTON, ID_AGAIN, CHECK, [7, 298, 220, 10], tr!(AddDontShowAgain));
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 296, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 296, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -300,6 +321,14 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 }
                 if (*nm).code == NM_CUSTOMDRAW {
                     let r = controls::selection_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW));
+                    SetWindowLongPtrW(dlg, DWLP_MSGRESULT, r);
+                    return 1;
+                }
+                if (*nm).code == LVN_ODFINDITEMW {
+                    // type-ahead: the list gathers the typed letters and asks for the row
+                    let tree = &st.tree;
+                    let r =
+                        controls::answer_find_item(lp, tree.len(), |i| tree.row(i).map_or("", |r| r.name));
                     SetWindowLongPtrW(dlg, DWLP_MSGRESULT, r);
                     return 1;
                 }
@@ -376,6 +405,10 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         // on one line (a comment of several lines shows whole in its tooltip)
         set_text(item(dlg, ID_T_COMMENT), &st.comment.split_whitespace().collect::<Vec<_>>().join(" "));
         set_text(item(dlg, ID_T_DATE), &st.date.map(fmt::date_time).unwrap_or_default());
+
+        let cue = wide(tr!(FilesFilterCue));
+        send(item(dlg, ID_FILTER), EM_SETCUEBANNER, 0, cue.as_ptr() as LPARAM);
+        crate::help::control_tip(dlg, item(dlg, ID_FILTER_CLEAR), tr!(FilesFilterClear));
 
         let lv = item(dlg, ID_FILES);
         let ex = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP;
@@ -632,8 +665,26 @@ unsafe fn command(dlg: HWND, st: &mut State, id: u16, code: u32) -> bool {
             }
             ID_SAVE if code == CBN_EDITCHANGE => update_size(dlg, st),
             ID_ALL | ID_NONE => {
+                // the shown files only while the filter is on
                 st.tree.set_all(id == ID_ALL);
                 changed(dlg, st);
+            }
+            ID_FILTER if code == EN_CHANGE => filter_changed(dlg, st),
+            ID_FILTER_CLEAR => {
+                // the focus leaves the × before it hides
+                SetFocus(item(dlg, ID_FILES));
+                set_text(item(dlg, ID_FILTER), "");
+            }
+            // Enter in the filter goes to the list it narrowed
+            _ if id == IDOK as u16 && GetFocus() == item(dlg, ID_FILTER) => {
+                SetFocus(item(dlg, ID_FILES));
+            }
+            // Escape in the filter empties it; once empty, it closes the dialog
+            _ if id == IDCANCEL as u16
+                && GetFocus() == item(dlg, ID_FILTER)
+                && !window_text(item(dlg, ID_FILTER)).is_empty() =>
+            {
+                set_text(item(dlg, ID_FILTER), "");
             }
             _ if id == IDOK as u16 => {
                 if let Some(c) = collect(dlg, st) {
@@ -727,6 +778,39 @@ unsafe fn reshaped(dlg: HWND, st: &State, row: usize) {
     }
 }
 
+/// The filter's text changed: the list shows the matching files and their folders, the count
+/// and the × show while it filters. The selection is by row, so it starts again at the top.
+unsafe fn filter_changed(dlg: HWND, st: &mut State) {
+    unsafe {
+        let text = window_text(item(dlg, ID_FILTER));
+        if st.tree.set_filter(&text) {
+            let lv = item(dlg, ID_FILES);
+            controls::set_count(lv, st.tree.len());
+            controls::set_state(lv, None, false, false);
+            if !st.tree.is_empty() {
+                controls::set_state(lv, Some(0), false, true);
+                send(lv, LVM_ENSUREVISIBLE, 0, 0);
+            }
+            fit_columns(lv);
+            InvalidateRect(lv, null(), 0);
+        }
+        let on = st.tree.filter().is_on();
+        let count = if on {
+            tr!(
+                FilesFilterCount,
+                shown = fmt::count(st.tree.shown_files()),
+                total = fmt::count(st.tree.num_files())
+            )
+        } else {
+            String::new()
+        };
+        set_text(item(dlg, ID_FILTER_COUNT), &count);
+        let show = if on { SW_SHOWNA } else { SW_HIDE };
+        ShowWindow(item(dlg, ID_FILTER_CLEAR), show);
+        ShowWindow(item(dlg, ID_FILTER_COUNT), show);
+    }
+}
+
 unsafe fn notify(dlg: HWND, st: &mut State, nm: *mut NMHDR) {
     unsafe {
         let lv = item(dlg, ID_FILES);
@@ -762,6 +846,13 @@ unsafe fn notify(dlg: HWND, st: &mut State, nm: *mut NMHDR) {
             }
             LVN_KEYDOWN => {
                 let kd = &*(nm as *const NMLVKEYDOWN);
+                if kd.wVKey == b'F' as u16 && GetKeyState(VK_CONTROL as i32) < 0 {
+                    // Ctrl+F: to the filter, its text selected to type over
+                    let filter = item(dlg, ID_FILTER);
+                    SetFocus(filter);
+                    send(filter, EM_SETSEL, 0, -1);
+                    return;
+                }
                 let Some(row) = controls::focused(lv) else { return };
                 match kd.wVKey {
                     VK_SPACE => {
@@ -898,11 +989,12 @@ mod tests {
 
     use rookparcel_frontend::options::{GuiOptions, Options};
     use windows_sys::Win32::UI::Controls::{
-        ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVITEMW, LVM_GETITEMCOUNT,
-        LVM_GETITEMTEXTW, TTM_GETTOOLCOUNT,
+        EM_GETCUEBANNER, ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVITEMW,
+        LVM_GETITEMCOUNT, LVM_GETITEMTEXTW, TTM_GETTOOLCOUNT,
     };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetKeyboardState, SetKeyboardState};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, SendMessageW, WM_KEYDOWN,
+        CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, IsWindow, SendMessageW, WM_CHAR, WM_KEYDOWN,
     };
 
     use super::*;
@@ -1006,6 +1098,20 @@ mod tests {
             unsafe { SendMessageW(self.lv(), WM_KEYDOWN, vk as usize, 0) };
         }
 
+        /// A letter typed in the list view (its type-ahead asks the dialog for the row).
+        fn char(&self, c: char) {
+            unsafe { SendMessageW(self.lv(), WM_CHAR, c as usize, 0) };
+        }
+
+        fn focus(&self) -> Option<usize> {
+            unsafe { controls::focused(self.lv()) }
+        }
+
+        /// Text typed in the filter box (it notifies the dialog with `EN_CHANGE`).
+        fn filter(&self, text: &str) {
+            unsafe { set_text(item(self.dlg, ID_FILTER), text) };
+        }
+
         fn prios(&self) -> Vec<u8> {
             self.st.tree.file_priorities().iter().map(|p| p.0).collect()
         }
@@ -1098,6 +1204,11 @@ mod tests {
             let at = |id: u16| rect_in(dlg, item(dlg, id));
             let (list, ok, none, save) = (at(ID_FILES), at(IDOK as u16), at(ID_NONE), at(ID_SAVE));
             let (again, box_, drop) = (at(ID_AGAIN), at(ID_BOX_CONTENTS), at(ID_LABEL));
+            let (filter, clear, count) = (at(ID_FILTER), at(ID_FILTER_CLEAR), at(ID_FILTER_COUNT));
+            // the filter row over the list, inside the contents box
+            assert!(filter.bottom < list.top && none.bottom < filter.top);
+            assert!(filter.right < clear.left && clear.right < count.left && count.right <= list.right);
+            assert!(box_.bottom > list.bottom && again.top > box_.bottom);
             let mut dropped: RECT = zeroed();
             send(item(dlg, ID_LABEL), CB_GETDROPPEDCONTROLRECT, 0, &mut dropped as *mut _ as LPARAM);
             let open_height = dropped.bottom - dropped.top;
@@ -1124,6 +1235,12 @@ mod tests {
             assert_eq!((n.left, n.top), (none.left + 100, none.top));
             let s = at(ID_SAVE);
             assert_eq!((s.left, s.right), (save.left, save.right + 100));
+            let e = at(ID_FILTER);
+            assert_eq!((e.left, e.top, e.right), (filter.left, filter.top, filter.right + 100));
+            let x = at(ID_FILTER_CLEAR);
+            assert_eq!((x.left, x.top, x.right), (clear.left + 100, clear.top, clear.right + 100));
+            let c = at(ID_FILTER_COUNT);
+            assert_eq!((c.left, c.right), (count.left + 100, count.right + 100));
             let a = at(ID_AGAIN);
             assert_eq!((a.left, a.top), (again.left, again.top + 80));
             // a grown drop-down still opens as far
@@ -1284,6 +1401,116 @@ mod tests {
         let c = unsafe { collect(f.dlg, &f.st) }.unwrap();
         assert_eq!(c.name, None);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn letters_typed_in_the_list_go_to_the_row_starting_with_them() {
+        // readme.txt, cd1, a.bin, b.bin, cd2, c.bin
+        let f = Fixture::new(&FILES, setup());
+        // one letter over and over goes on to the next row starting with it, wrapping around
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            f.char('c');
+            seen.push(f.focus());
+        }
+        assert_eq!(seen, [Some(1), Some(4), Some(5), Some(1)]);
+        assert_eq!(unsafe { controls::selected(f.lv()) }, [1], "the row is selected too");
+        // letters typed together make a prefix, any case
+        let f = Fixture::new(&FILES, setup());
+        for c in ['C', 'D', '2'] {
+            f.char(c);
+        }
+        assert_eq!(f.focus(), Some(4));
+        let f = Fixture::new(&FILES, setup());
+        f.char('R');
+        assert_eq!(f.focus(), Some(0));
+        f.char('x');
+        assert_eq!(f.focus(), Some(0), "no row starts with \"rx\": the focus stays");
+    }
+
+    #[test]
+    fn the_filter_narrows_the_files_to_check() {
+        let f = Fixture::new(&FILES, setup());
+        let shown =
+            |id: u16| unsafe { GetWindowLongPtrW(item(f.dlg, id), GWL_STYLE) as u32 & WS_VISIBLE != 0 };
+        assert_eq!(f.text(ID_FILTER_COUNT), "");
+        assert!(!shown(ID_FILTER_CLEAR) && !shown(ID_FILTER_COUNT), "nothing to clear or count yet");
+        let mut cue = [0u16; 64];
+        unsafe {
+            send(item(f.dlg, ID_FILTER), EM_GETCUEBANNER, cue.as_mut_ptr() as usize, cue.len() as isize)
+        };
+        assert_eq!(from_wide(&cue), "Filter files");
+
+        // the matching files and their folders, open
+        f.filter("BIN");
+        assert_eq!(
+            (0..f.rows()).map(|r| f.cell(r, 0)).collect::<Vec<_>>(),
+            ["cd1", "a.bin", "b.bin", "cd2", "c.bin"]
+        );
+        assert_eq!(f.text(ID_FILTER_COUNT), "3 of 4 files");
+        assert!(shown(ID_FILTER_CLEAR) && shown(ID_FILTER_COUNT));
+        assert_eq!(f.focus(), Some(0), "the focus starts again at the top");
+        // type-ahead over the rows shown
+        f.char('c');
+        assert_eq!(f.focus(), Some(3));
+
+        // Select None and a folder's check box act on the shown files only
+        f.filter("cd1 a");
+        assert_eq!(f.rows(), 2);
+        assert_eq!(f.text(ID_FILTER_COUNT), "1 of 4 files");
+        f.click(ID_NONE);
+        assert_eq!(f.prios(), [4, 0, 4, 4]);
+        assert!(f.text(ID_T_SIZE).starts_with("68.5 kB of 88.0 kB selected"), "{}", f.text(ID_T_SIZE));
+        f.click(ID_ALL);
+        f.select(&[0]);
+        f.key(VK_SPACE);
+        assert_eq!(f.prios(), [4, 0, 4, 4], "the folder unchecks a.bin, not b.bin");
+        assert_eq!(f.cell(0, 2), "Mixed", "the folder still sums up all its files");
+
+        // the × empties the box: every row back, the choices kept
+        f.click(ID_FILTER_CLEAR);
+        assert_eq!(f.text(ID_FILTER), "");
+        assert_eq!(f.rows(), 6);
+        assert_eq!(f.prios(), [4, 0, 4, 4]);
+        assert!(!shown(ID_FILTER_CLEAR) && !shown(ID_FILTER_COUNT));
+        assert_eq!(f.text(ID_FILTER_COUNT), "");
+        // nothing matches: no rows, "0 of 4 files"
+        f.filter("zzz");
+        assert_eq!(f.rows(), 0);
+        assert_eq!(f.text(ID_FILTER_COUNT), "0 of 4 files");
+    }
+
+    #[test]
+    fn keys_go_between_the_filter_and_the_list() {
+        let f = Fixture::new(&FILES, setup());
+        let (filter, lv) = unsafe { (item(f.dlg, ID_FILTER), f.lv()) };
+        unsafe {
+            // Ctrl+F in the list goes to the box (the key state is this thread's)
+            let mut keys = [0u8; 256];
+            GetKeyboardState(keys.as_mut_ptr());
+            let saved = keys;
+            keys[VK_CONTROL as usize] = 0x80;
+            SetKeyboardState(keys.as_ptr());
+            SetFocus(lv);
+            f.key(b'F' as u16);
+            SetKeyboardState(saved.as_ptr());
+            if GetFocus() != filter {
+                // a hidden dialog may not take the focus here; the rest needs it
+                eprintln!("the dialog did not take the focus: Escape and Enter are not tried");
+                return;
+            }
+            f.filter("cd1");
+            // Escape (IDCANCEL from the dialog manager) empties the box and keeps the dialog
+            f.click(IDCANCEL as u16);
+            assert_eq!(f.text(ID_FILTER), "");
+            assert_eq!(f.rows(), 6);
+            assert!(IsWindow(f.dlg) != 0 && GetFocus() == filter);
+            // Enter (IDOK) goes to the list instead of adding the torrent
+            f.filter("cd1");
+            f.click(IDOK as u16);
+            assert_eq!(GetFocus(), lv);
+            assert!(f.st.choice.is_none());
+        }
     }
 
     #[test]

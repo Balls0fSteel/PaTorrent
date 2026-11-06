@@ -65,6 +65,11 @@ thread_local! {
     static LOCK: RefCell<Option<Lock>> = const { RefCell::new(None) };
 }
 
+/// Started with `--demo N` (the simulated engine).
+fn is_demo() -> bool {
+    APP.with(|a| a.try_borrow().ok().and_then(|a| a.as_ref().map(|a| a.demo.is_some())).unwrap_or(false))
+}
+
 /// Runs `f` on the application (a mutable borrow); `None` before the start or while borrowed.
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP.with(|a| a.try_borrow_mut().ok()?.as_mut().map(f))
@@ -310,6 +315,8 @@ fn open(mtm: MainThreadMarker, args: Args, remote: Option<crate::remote::Connect
     } else {
         crate::mac::started(mtm)
     }
+    // slice I: the search field's kept mode (its hint and menu)
+    crate::search::started();
     log_line(&format!(
         "{} started{}",
         profile::name_build(),
@@ -365,7 +372,8 @@ pub fn apply(ev: Option<Events>) {
     for message in &ev.infos {
         ui::sheet(Some(&ui.window), ui::Style::Info, message, "", &[], |_| {}, mtm);
     }
-    if !ev.completed.is_empty() {
+    // (a demo's simulated torrents finish all the time: no notification flood from them)
+    if !ev.completed.is_empty() && !is_demo() {
         crate::mac::notify::completed(&ev.completed);
     }
     // (one line per slice: each fills its own module's function)
@@ -543,6 +551,10 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
     if let Some(s) = crate::rss::state(cmd) {
         return s;
     }
+    // slice I: the search field's modes, the current one checked
+    if let Command::SearchNames | Command::SearchSource(_) | Command::SearchAllSources = cmd {
+        return crate::search::state(cmd);
+    }
     if cmd.needs_selection() {
         // a feed's items in the list: the hidden torrent selection is not the one shown
         if feed_items_shown() {
@@ -555,7 +567,6 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
             let me = profile::menu(&paths::profiles_root()).get(i as usize).is_some_and(|(_, me)| *me);
             Some(me)
         }
-        Command::SearchNames => Some(crate::search::filters_names()),
         _ => None,
     };
     let enabled = match cmd {
@@ -601,5 +612,7 @@ pub fn shutdown() -> Option<rookparcel_core::Exit> {
         with_core(|c| layout.store(c.prefs_mut()));
     }
     UI.with(|u| u.borrow_mut().take());
+    // slice I: the search stops, the search helper (if it runs) is killed
+    crate::search::shutdown();
     with_core(|c| c.shutdown()).flatten()
 }

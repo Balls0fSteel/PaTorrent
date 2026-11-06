@@ -280,26 +280,13 @@ impl RPWindowDelegate {
 /// The search field with its mode menu (filter the names, a source, all sources, Manage
 /// Sources...).
 fn search_field(mtm: MainThreadMarker) -> Retained<NSSearchField> {
-    let f = ui::search_field(&ui::text(tr!(SearchCue)), Command::Search, mtm);
+    // slice I: the hint and the menu follow the kept mode and the sources
+    let f = ui::search_field(&crate::search::cue(), Command::Search, mtm);
     layout::activate(&[
         f.widthAnchor().constraintGreaterThanOrEqualToConstant(140.0),
         f.widthAnchor().constraintLessThanOrEqualToConstant(260.0),
     ]);
-    let template = menu::build(
-        "",
-        &[
-            menu::Item::Cmd { cmd: Command::SearchNames, title: ui::text(tr!(SearchCue)), key: None },
-            menu::Item::Sep,
-            menu::Item::Cmd {
-                cmd: Command::SearchAllSources,
-                title: ui::text(tr!(SearchAllSources)),
-                key: None,
-            },
-            menu::Item::Sep,
-            menu::Item::Cmd { cmd: Command::ManageSources, title: ui::text(tr!(SearchManage)), key: None },
-        ],
-        mtm,
-    );
+    let template = menu::build("", &crate::search::menu_items(), mtm);
     if let Some(cell) = f.cell().and_then(|c| c.downcast::<NSSearchFieldCell>().ok()) {
         cell.setSearchMenuTemplate(Some(&template));
     }

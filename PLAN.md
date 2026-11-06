@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_142501_1793971501
+Last updated: 2026-11-06_155728_1793977048
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,7 +18,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Waves 0-2 are merged (1.2.6-1.2.16): every window and dialog of the GTK GUI, each checked on the VM with its screen locked (mouse, keyboard and context-menu checks wait for an unlocked screen, BACKLOG "macOS"). A release build lists 100,000 demo torrents in 1.1 s on the VM (6.2 MB, x86_64).
+- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Waves 0-2 are merged (1.2.6-1.2.16) and validated on the unlocked VM with real input (slice L, 1.2.17): every window and dialog of the GTK GUI; release build lists 100,000 demo torrents in 0.48 s, sorts in 47-66 ms, 194 MB. Open items in BACKLOG "macOS"; the owner's real Mac still checks arm64, Retina and Gatekeeper.
 
 - **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services; repository, Pages, wiki and screenshots renamed. **1.2.5, the first release as Rookparcel, is published (2026-11-06)**; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak.
 
@@ -32,7 +32,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**macOS next (2026-11-06_142501_1793971501):** wave 3 of [MACOS_GUI.md](docs/MACOS_GUI.md): slice L, the validation (needs the VM's screen unlocked by the owner for the interactive checks of waves 1-2, then the owner's real Mac for arm64, Retina and Gatekeeper), and slice K, the release switch from the GTK bundle, merged only after L passes.
+**macOS next (2026-11-06_155728_1793977048):** slice K, the release switch from the GTK bundle (branch `worktree-agent-a50c5e4515be13eae`, reviewed; universal `Rookparcel-<version>-macos.dmg`, GTK crate a stub on macOS, site and wiki for macOS 11), goes in with the first native release, whose draft dmg the owner checks on a real Mac (arm64, Retina, Gatekeeper) before publishing. Its workflows run for the first time then.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

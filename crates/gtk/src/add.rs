@@ -8,11 +8,18 @@
 //! the list item's position whenever they are drawn. Folders open and close with their arrow,
 //! a double click, Enter, Right / Left or + / -; Space toggles the selected rows' check boxes;
 //! a right click opens the priorities.
+//!
+//! The filter box above the list keeps the files whose paths match and their folders (opened);
+//! Select All / None, Check / Uncheck and the priorities then act on the shown files only.
+//! Escape empties the box, or closes the dialog when it is empty; Enter and Ctrl+F move
+//! between the box and the list. Typing letters in the list jumps to the next row starting
+//! with them (type-ahead).
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
+use std::time::Instant;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
@@ -20,6 +27,7 @@ use rookparcel_core::metainfo::TorrentInfo;
 use rookparcel_frontend::add::{self, AddChoice, Check, FileTree, Setup};
 use rookparcel_frontend::detail::{PRIORITIES, priority_text};
 use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::typeahead::TypeAhead;
 use rookparcel_frontend::{fmt, tr};
 
 use crate::table::CountModel;
@@ -58,6 +66,10 @@ struct Dialog {
     drawing: Cell<bool>,
     save: gtk::Entry,
     size: gtk::Label,
+    /// "12 of 3,400 files" beside the filter box, while it filters.
+    count: gtk::Label,
+    /// The letters typed into the list.
+    typeahead: RefCell<TypeAhead>,
     /// The theme's icon per lower-case extension.
     icons: RefCell<HashMap<String, gio::Icon>>,
     done: RefCell<Option<Done>>,
@@ -144,6 +156,19 @@ pub fn show(
     view.set_reorderable(false);
     view.set_show_column_separators(true);
     view.add_css_class("data-table");
+    // the filter box and its count, between the torrent's details and the list
+    let filter = gtk::SearchEntry::new();
+    filter.set_placeholder_text(Some(tr!(FilesFilterCue)));
+    filter.set_width_chars(1);
+    filter.set_size_request(200, -1);
+    // every keystroke filters, as the Files tab does
+    filter.set_search_delay(0);
+    let count = gtk::Label::new(None);
+    count.add_css_class("dim-label");
+    count.set_visible(false);
+    let filter_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+    filter_bar.append(&filter);
+    filter_bar.append(&count);
     let d = Rc::new(Dialog {
         tree: RefCell::new(FileTree::from_torrent(ti)),
         model,
@@ -152,6 +177,8 @@ pub fn show(
         drawing: Cell::new(false),
         save: save.clone(),
         size,
+        count,
+        typeahead: RefCell::default(),
         icons: RefCell::default(),
         done: RefCell::new(Some(Box::new(done))),
     });
@@ -173,6 +200,7 @@ pub fn show(
     select.append(&none);
     let contents = gtk::Box::new(gtk::Orientation::Vertical, 8);
     contents.append(&info);
+    contents.append(&filter_bar);
     contents.append(&files);
     contents.append(&select);
     let right = framed(tr!(AddContents), &contents, None);
@@ -247,10 +275,40 @@ pub fn show(
     key.set_propagation_phase(gtk::PropagationPhase::Capture);
     key.connect_key_pressed({
         let w = Rc::downgrade(&d);
-        move |_, key, _, _| {
-            use gtk::gdk::Key;
+        let (view_ref, filter_ref) = (view.downgrade(), filter.downgrade());
+        move |_, key, _, state| {
+            use gtk::gdk::{Key, ModifierType};
             let Some(d) = w.upgrade() else { return glib::Propagation::Proceed };
             let rows = d.selected();
+            let commands = ModifierType::CONTROL_MASK
+                | ModifierType::ALT_MASK
+                | ModifierType::SUPER_MASK
+                | ModifierType::META_MASK;
+            if state.contains(ModifierType::CONTROL_MASK) && matches!(key, Key::f | Key::F) {
+                if let Some(f) = filter_ref.upgrade() {
+                    f.grab_focus();
+                }
+                return glib::Propagation::Stop;
+            }
+            // type-ahead: printable characters jump to the next row starting with the letters
+            // typed; not Space (it checks) nor + and - (they open and close folders)
+            let typed = key.to_unicode().filter(|&c| !matches!(c, ' ' | '+' | '-') && !c.is_control());
+            if let (Some(c), false) = (typed, state.intersects(commands)) {
+                let found = {
+                    let mut ta = d.typeahead.borrow_mut();
+                    let (prefix, from) = ta.push(c, Instant::now(), rows.first().copied());
+                    d.tree.borrow().find_row(prefix, from)
+                };
+                if let (Some(pos), Some(view)) = (found, view_ref.upgrade()) {
+                    view.scroll_to(
+                        pos as u32,
+                        None,
+                        gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                        None,
+                    );
+                }
+                return glib::Propagation::Stop;
+            }
             let Some(&row) = rows.first() else { return glib::Propagation::Proceed };
             if key == Key::space {
                 d.tree.borrow_mut().toggle_checks(&rows);
@@ -272,6 +330,49 @@ pub fn show(
         }
     });
     view.add_controller(key);
+
+    // the filter: every keystroke narrows the list
+    filter.connect_search_changed({
+        let w = Rc::downgrade(&d);
+        move |e| {
+            if let Some(d) = w.upgrade() {
+                d.set_filter(&e.text());
+            }
+        }
+    });
+    // Escape (the entry's own key, before the window's): empties the box, or closes the dialog
+    // when it is already empty
+    filter.connect_stop_search({
+        let (w, window) = (Rc::downgrade(&d), window.downgrade());
+        move |e| {
+            if !e.text().is_empty() {
+                e.set_text("");
+                if let Some(d) = w.upgrade() {
+                    d.set_filter("");
+                }
+            } else if let Some(window) = window.upgrade() {
+                window.close();
+            }
+        }
+    });
+    // Enter: to the list, on its selected row (or the first)
+    filter.connect_activate({
+        let (w, view) = (Rc::downgrade(&d), view.downgrade());
+        move |_| {
+            let (Some(d), Some(view)) = (w.upgrade(), view.upgrade()) else { return };
+            let row = d.selected().first().copied();
+            if row.is_none() && d.tree.borrow().is_empty() {
+                view.grab_focus();
+                return;
+            }
+            let flags = if row.is_some() {
+                gtk::ListScrollFlags::FOCUS
+            } else {
+                gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT
+            };
+            view.scroll_to(row.unwrap_or(0) as u32, None, flags, None);
+        }
+    });
 
     all.connect_clicked({
         let w = Rc::downgrade(&d);
@@ -390,6 +491,35 @@ impl Dialog {
     fn changed(&self) {
         self.redraw();
         self.update_size();
+    }
+
+    /// The filter box's text changed: the list is rebuilt from the matching rows (with nothing
+    /// selected) and the count beside the box follows.
+    fn set_filter(&self, text: &str) {
+        let (changed, len) = {
+            let mut tree = self.tree.borrow_mut();
+            (tree.set_filter(text), tree.len())
+        };
+        if changed {
+            self.typeahead.borrow_mut().reset();
+            self.selection.unselect_all();
+            // every row may be a different one: replace them all
+            self.model.splice(0, self.model.n_items() as usize, len);
+            self.redraw();
+        }
+        let tree = self.tree.borrow();
+        let on = tree.filter().is_on();
+        if on {
+            set_text(
+                &self.count,
+                &tr!(
+                    FilesFilterCount,
+                    shown = fmt::count(tree.shown_files()),
+                    total = fmt::count(tree.num_files())
+                ),
+            );
+        }
+        self.count.set_visible(on);
     }
 
     /// Opens (`Some(true)`), closes (`Some(false)`) or toggles the folder in `row`; the rows

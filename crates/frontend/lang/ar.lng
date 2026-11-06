@@ -411,6 +411,7 @@ ProfileBadName=لا يمكن أن يكون "{name}" اسم ملف تعريف. ي
 ProfileCreate=ملف التعريف "{name}" غير موجود بعد. هل تريد إنشاءه؟\n\nيبدأ فارغًا، مثل تثبيت جديد، في:\n{folder}
 MacTranslocated=يشغّل macOS برنامج Rookparcel من نسخة مؤقتة، لذا لا يُرى ملف rookparcel.ini بجوار Rookparcel.app. انقل Rookparcel.app إلى المجلد الذي تريده (أو إلى التطبيقات) باستخدام Finder وشغّله مرة أخرى.
 EndSessionSaving=جارٍ حفظ قائمة التورنتات والتقدم...
+MacAssocKept=يُبقي macOS على Rookparcel برنامجًا لملفات .torrent وروابط magnet: إلى أن يُختار برنامج آخر: لملفات .torrent في Finder (الحصول على المعلومات، فتح باستخدام، تغيير الكل)، ولروابط magnet: في إعدادات البرنامج الآخر.
 ExitTitle=يجري إغلاق Rookparcel
 ExitElapsed=جارٍ الإغلاق منذ {time}
 ExitStopping=جارٍ إيقاف التورنتات...

@@ -411,6 +411,7 @@ ProfileBadName="{name}" ne može biti naziv profila. Naziv profila ima od 1 do 3
 ProfileCreate=Profil "{name}" još ne postoji. Stvoriti ga?\n\nPočinje prazan, kao nova instalacija, u:\n{folder}
 MacTranslocated=macOS pokreće Rookparcel iz privremene kopije pa se rookparcel.ini pokraj Rookparcel.app ne vidi. Premjestite Rookparcel.app pomoću Findera u željenu mapu (ili u Aplikacije) i ponovno ga pokrenite.
 EndSessionSaving=Spremanje popisa torrenata i napretka...
+MacAssocKept=macOS zadržava Rookparcel kao program za datoteke .torrent i poveznice magnet: dok se ne odabere drugi: za datoteke .torrent u Finderu (Prikaži informacije, Otvori s, Promijeni sve), za poveznice magnet: u postavkama drugog programa.
 ExitTitle=Rookparcel se zatvara
 ExitElapsed=Zatvaranje traje {time}
 ExitStopping=Zaustavljanje torrenata...

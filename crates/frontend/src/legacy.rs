@@ -154,6 +154,93 @@ fn folders(root: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// The GTK bundle's folder below `Application Support/Rookparcel` (and each profile's), and the
+/// native Mac GUI's that takes it over (D61).
+const GTK_DIR: &str = "gtk";
+const MAC_DIR: &str = "mac";
+
+/// The native Mac GUI's first start takes over the GTK bundle's libraries, once (D61): below
+/// `~/Library/Application Support/Rookparcel`, the default profile's `gtk` folder and each
+/// `profiles/<name>/gtk` become `mac` ([`take_over_gtk_in`]). Nothing in portable mode (the
+/// portable folder is shared as it is). `Err` names this profile's `gtk` folder while a GTK
+/// Rookparcel runs on it, or when it could not be moved: nothing should start on a new `mac`
+/// folder then.
+pub fn take_over_gtk() -> Result<(), PathBuf> {
+    let p = crate::profile::current();
+    if p.portable_root.is_some() {
+        return Ok(());
+    }
+    let Some(home) = std::env::var_os("HOME").filter(|h| Path::new(h).is_absolute()) else { return Ok(()) };
+    let root = Path::new(&home).join("Library").join("Application Support").join("Rookparcel");
+    take_over_gtk_in(&root, p.name.as_deref())
+}
+
+/// [`take_over_gtk`] in `root` for the running profile `current` (`None`: the default one): each
+/// `gtk` folder (the root's and every `profiles/<name>`'s) whose `mac` sibling is absent and
+/// whose `rookparcel.lock` is free is renamed to `mac`, and the paths into it in its settings
+/// files (its own `rookparcel.ini` and its remote windows') follow it. A folder a GTK Rookparcel
+/// holds is left for a later start; only `current`'s is an error.
+pub fn take_over_gtk_in(root: &Path, current: Option<&str>) -> Result<(), PathBuf> {
+    let mut bases: Vec<(Option<String>, PathBuf)> = vec![(None, root.to_path_buf())];
+    if let Ok(dir) = std::fs::read_dir(root.join(crate::profile::FOLDER)) {
+        for e in dir.flatten() {
+            if e.path().is_dir() {
+                bases.push((Some(e.file_name().to_string_lossy().into_owned()), e.path()));
+            }
+        }
+    }
+    let mut result = Ok(());
+    for (name, base) in bases {
+        let (gtk, mac) = (base.join(GTK_DIR), base.join(MAC_DIR));
+        if mac.exists() || !gtk.is_dir() {
+            continue;
+        }
+        let mine = name.as_deref() == current;
+        if lockfile::is_held(&gtk.join(lockfile::FILE_NAME)) {
+            if mine {
+                result = Err(gtk);
+            }
+            continue;
+        }
+        if let Err(e) = std::fs::rename(&gtk, &mac) {
+            eprintln!("! moving {} to {}: {e}", gtk.display(), mac.display());
+            if mine {
+                result = Err(gtk);
+            }
+            continue;
+        }
+        let mut inis = vec![mac.join(crate::profile::PORTABLE_MARKER)];
+        if let Ok(remote) = std::fs::read_dir(mac.join("remote")) {
+            inis.extend(remote.flatten().map(|e| e.path().join(crate::profile::PORTABLE_MARKER)));
+        }
+        for ini in inis {
+            repoint_folder(&ini, &gtk, &mac);
+        }
+        eprintln!("* took over the GTK bundle's folder {} as {}", gtk.display(), mac.display());
+    }
+    result
+}
+
+/// Rewrites the paths into the folder `was` in the settings file `ini` to `now`: only whole
+/// path parts (`.../gtk`, `.../gtk/...`), never `.../gtk2`.
+fn repoint_folder(ini: &Path, was: &Path, now: &Path) {
+    let (Some(was), Some(now)) = (was.to_str(), now.to_str()) else { return };
+    let Ok(text) = std::fs::read_to_string(ini) else { return };
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(at) = rest.find(was) {
+        let after = &rest[at + was.len()..];
+        out.push_str(&rest[..at]);
+        let whole = after.is_empty() || after.starts_with(['/', '\\', '\n', '\r', '|']);
+        out.push_str(if whole { now } else { was });
+        rest = after;
+    }
+    out.push_str(rest);
+    if out != text {
+        let _ = std::fs::write(ini, out);
+    }
+}
+
 /// The environment variable `ROOKPARCEL_<suffix>`, else the former name's `PATORRENT_<suffix>`.
 pub fn env_var(suffix: &str) -> Option<OsString> {
     std::env::var_os(format!("ROOKPARCEL_{suffix}"))
@@ -245,6 +332,83 @@ mod tests {
         move_root(&old, &new).unwrap();
         assert!(new.join("rookparcel.ini").is_file());
         std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// The GTK bundle's 1.2.5 library under Application Support (D61): settings with paths into
+    /// it, a remote window's folder, a profile.
+    fn gtk_library(base: &Path) -> (PathBuf, PathBuf) {
+        let gtk = base.join("gtk");
+        let work = base.join("profiles").join("work").join("gtk");
+        std::fs::create_dir_all(gtk.join("remote").join("nas_8080")).unwrap();
+        std::fs::create_dir_all(&work).unwrap();
+        let ini = format!(
+            "ipfilter.path={}\nadd.recent_dirs={}|{}\nother={}2/x\n",
+            gtk.join("ipfilter.dat").display(),
+            gtk.join("in").display(),
+            gtk.display(),
+            gtk.display()
+        );
+        std::fs::write(gtk.join("rookparcel.ini"), ini).unwrap();
+        std::fs::write(gtk.join("resume.db"), "db").unwrap();
+        let remote = format!("dir.torrents={}\n", gtk.join("remote").display());
+        std::fs::write(gtk.join("remote").join("nas_8080").join("rookparcel.ini"), remote).unwrap();
+        std::fs::write(work.join("rookparcel.ini"), "ui.language=hu\n").unwrap();
+        (gtk, work)
+    }
+
+    #[test]
+    fn the_gtk_library_becomes_the_mac_one_once() {
+        let base = temp("gtk");
+        let (gtk, work) = gtk_library(&base);
+        let mac = base.join("mac");
+        take_over_gtk_in(&base, None).unwrap();
+        assert!(!gtk.exists() && !work.exists());
+        assert_eq!(std::fs::read_to_string(mac.join("resume.db")).unwrap(), "db");
+        let ini = std::fs::read_to_string(mac.join("rookparcel.ini")).unwrap();
+        let want = format!(
+            "ipfilter.path={}\nadd.recent_dirs={}|{}\nother={}2/x\n",
+            mac.join("ipfilter.dat").display(),
+            mac.join("in").display(),
+            mac.display(),
+            gtk.display()
+        );
+        assert_eq!(ini, want, "whole path parts only: gtk2 stays");
+        let remote =
+            std::fs::read_to_string(mac.join("remote").join("nas_8080").join("rookparcel.ini")).unwrap();
+        assert_eq!(remote, format!("dir.torrents={}\n", mac.join("remote").display()));
+        let work_mac = base.join("profiles").join("work").join("mac");
+        assert_eq!(std::fs::read_to_string(work_mac.join("rookparcel.ini")).unwrap(), "ui.language=hu\n");
+
+        // once: a mac folder is never replaced by a gtk one that turns up again
+        std::fs::create_dir_all(&gtk).unwrap();
+        std::fs::write(gtk.join("rookparcel.ini"), "new gtk\n").unwrap();
+        take_over_gtk_in(&base, None).unwrap();
+        assert!(gtk.join("rookparcel.ini").is_file());
+        assert_eq!(std::fs::read_to_string(mac.join("rookparcel.ini")).unwrap(), want);
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn a_running_gtk_rookparcel_keeps_its_library() {
+        let base = temp("gtk-held");
+        let (gtk, work) = gtk_library(&base);
+        // the GTK bundle runs the "work" profile
+        let running = lockfile::Lock::take(&work.join(lockfile::FILE_NAME)).unwrap();
+        // the default profile starts: its library moves, "work"'s waits for a later start
+        take_over_gtk_in(&base, None).unwrap();
+        assert!(base.join("mac").is_dir() && !gtk.exists());
+        assert!(work.is_dir() && !base.join("profiles").join("work").join("mac").exists());
+        // "work" itself cannot start on an empty library meanwhile
+        assert_eq!(take_over_gtk_in(&base, Some("work")), Err(work.clone()));
+        drop(running);
+        take_over_gtk_in(&base, Some("work")).unwrap();
+        assert!(base.join("profiles").join("work").join("mac").join("rookparcel.ini").is_file());
+        // nothing to take over: nothing happens
+        let empty = temp("gtk-none");
+        take_over_gtk_in(&empty, Some("x")).unwrap();
+        assert!(!empty.join("mac").exists());
+        std::fs::remove_dir_all(&base).unwrap();
+        std::fs::remove_dir_all(&empty).unwrap();
     }
 
     #[test]

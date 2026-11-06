@@ -411,6 +411,7 @@ ProfileBadName="{name}" نمی‌تواند نام نمایه باشد. نام �
 ProfileCreate=نمایهٔ "{name}" هنوز وجود ندارد. ساخته شود؟\n\nخالی آغاز می‌شود، مانند یک نصب تازه، در:\n{folder}
 MacTranslocated=macOS برنامهٔ Rookparcel را از یک نسخهٔ موقت اجرا می‌کند، بنابراین rookparcel.ini کنار Rookparcel.app دیده نمی‌شود. Rookparcel.app را با Finder به پوشهٔ دلخواه (یا Applications) منتقل کنید و دوباره اجرا کنید.
 EndSessionSaving=در حال ذخیره فهرست تورنت‌ها و پیشرفت...
+MacAssocKept=macOS برنامهٔ Rookparcel را برای فایل‌های .torrent و پیوندهای magnet: نگه می‌دارد تا برنامهٔ دیگری انتخاب شود: برای فایل‌های .torrent در Finder (نمایش اطلاعات، باز کردن با، تغییر همه)، برای پیوندهای magnet: در تنظیمات برنامهٔ دیگر.
 ExitTitle=Rookparcel در حال بسته شدن است
 ExitElapsed=زمان بسته شدن: {time}
 ExitStopping=در حال متوقف کردن تورنت‌ها...

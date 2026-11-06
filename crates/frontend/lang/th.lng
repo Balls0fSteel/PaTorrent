@@ -411,6 +411,7 @@ ProfileBadName="{name}" ใช้เป็นชื่อโปรไฟล์�
 ProfileCreate=ยังไม่มีโปรไฟล์ "{name}" ต้องการสร้างหรือไม่\n\nโปรไฟล์จะเริ่มต้นว่างเปล่าเหมือนการติดตั้งใหม่ ใน:\n{folder}
 MacTranslocated=macOS กำลังเรียกใช้ Rookparcel จากสำเนาชั่วคราว จึงมองไม่เห็น rookparcel.ini ที่อยู่ข้าง Rookparcel.app โปรดย้าย Rookparcel.app ไปยังโฟลเดอร์ที่ต้องการ (หรือ Applications) ด้วย Finder แล้วเปิดใหม่
 EndSessionSaving=กำลังบันทึกรายการทอร์เรนต์และความคืบหน้า...
+MacAssocKept=macOS จะคง Rookparcel ไว้เป็นโปรแกรมสำหรับไฟล์ .torrent และลิงก์ magnet: จนกว่าจะเลือกโปรแกรมอื่น: สำหรับไฟล์ .torrent ให้เลือกใน Finder (ดูข้อมูล, เปิดด้วย, เปลี่ยนทั้งหมด) สำหรับลิงก์ magnet: ให้เลือกในการตั้งค่าของโปรแกรมอื่นนั้น
 ExitTitle=Rookparcel กำลังปิด
 ExitElapsed=กำลังปิดมาแล้ว {time}
 ExitStopping=กำลังหยุดทอร์เรนต์...

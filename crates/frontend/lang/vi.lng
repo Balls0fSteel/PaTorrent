@@ -411,6 +411,7 @@ ProfileBadName="{name}" không thể là tên hồ sơ. Tên hồ sơ có từ 1
 ProfileCreate=Hồ sơ "{name}" chưa tồn tại. Tạo hồ sơ này?\n\nHồ sơ bắt đầu trống, như một bản cài đặt mới, tại:\n{folder}
 MacTranslocated=macOS đang chạy Rookparcel từ một bản sao tạm thời, nên không thấy rookparcel.ini bên cạnh Rookparcel.app. Hãy dùng Finder chuyển Rookparcel.app đến thư mục bạn muốn (hoặc Ứng dụng) rồi khởi động lại.
 EndSessionSaving=Đang lưu danh sách torrent và tiến độ...
+MacAssocKept=macOS giữ Rookparcel làm chương trình cho tệp .torrent và liên kết magnet: cho đến khi chọn chương trình khác: với tệp .torrent trong Finder (Lấy thông tin, Mở bằng, Thay đổi tất cả), với liên kết magnet: trong cài đặt của chương trình kia.
 ExitTitle=Rookparcel đang đóng
 ExitElapsed=Đang đóng được {time}
 ExitStopping=Đang dừng các torrent...

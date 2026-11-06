@@ -616,6 +616,9 @@ strings! {
     /// Windows lists it beside Rookparcel while it holds up a sign-out or shutdown to save its
     /// state.
     EndSessionSaving = "Saving the torrent list and progress...";
+    /// Preferences > General on macOS, when an association box is cleared: macOS has no way
+    /// to give a file type or link type back to "no default program".
+    MacAssocKept = "macOS keeps Rookparcel as the program for .torrent files and magnet: links until another one is chosen: for .torrent files in Finder (Get Info, Open with, Change All), for magnet: links in the other program's settings.";
 
     // ---- The window shown while Rookparcel closes (after a second, or at a Windows sign-out)
 

@@ -411,6 +411,7 @@ ProfileBadName=「{name}」不能作為設定檔名稱。設定檔名稱為 1 �
 ProfileCreate=設定檔「{name}」尚不存在。是否建立？\n\n它會像全新安裝一樣從空白開始，位置：\n{folder}
 MacTranslocated=macOS 正從暫存副本執行 Rookparcel，因此看不到 Rookparcel.app 旁邊的 rookparcel.ini。請用 Finder 將 Rookparcel.app 移到所需資料夾（或「應用程式」）後重新啟動。
 EndSessionSaving=正在儲存種子清單與進度...
+MacAssocKept=在選擇其他程式之前，macOS 會一直用 Rookparcel 打開 .torrent 檔案和 magnet: 連結：.torrent 檔案在 Finder 中更改（取得資訊、打開檔案的應用程式、全部更改），magnet: 連結在另一個程式的設定中更改。
 ExitTitle=Rookparcel 正在關閉
 ExitElapsed=正在關閉，已經過 {time}
 ExitStopping=正在停止種子...

@@ -96,6 +96,8 @@ fn main() -> std::process::ExitCode {
     };
     // PaTorrent's folders become ours before anything reads them (D59)
     let still_patorrent = rookparcel_frontend::legacy::migrate().err();
+    // slice G: the GTK bundle's library becomes this GUI's, once (D61)
+    let still_patorrent = still_patorrent.or_else(|| rookparcel_frontend::legacy::take_over_gtk().err());
     let prefs = Prefs::load(paths::data_dir().join("rookparcel.ini"));
     fmt::set_utc_offset(objc2_foundation::NSTimeZone::localTimeZone().secondsFromGMT() as i32);
     for p in lang::init(prefs.get("ui.language").unwrap_or_default()) {

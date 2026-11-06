@@ -81,10 +81,18 @@ pub enum Command {
     SearchSource(u16),
     SearchAllSources,
     ManageSources,
+    // slice G
+    /// The status item's button: a left click shows or hides the window, a right click or a
+    /// Control-click opens its menu.
+    StatusItem,
+    /// The closing window's Quit Now (D47).
+    QuitNow,
+    /// The Auto Shutdown countdown's Cancel.
+    CancelShutdown,
 }
 
 /// Every command: those without a value, then those with one (at index 0).
-pub const ALL: [Command; 52] = [
+pub const ALL: [Command; 55] = [
     Command::About,
     Command::CheckUpdates,
     Command::Preferences,
@@ -131,6 +139,9 @@ pub const ALL: [Command; 52] = [
     Command::SearchNames,
     Command::SearchAllSources,
     Command::ManageSources,
+    Command::StatusItem,
+    Command::QuitNow,
+    Command::CancelShutdown,
     Command::Profile(0),
     Command::DownLimit(0),
     Command::UpLimit(0),
@@ -199,6 +210,9 @@ impl Command {
             SearchSource(i) => (50, i),
             SearchAllSources => (51, 0),
             ManageSources => (52, 0),
+            StatusItem => (53, 0),
+            QuitNow => (54, 0),
+            CancelShutdown => (55, 0),
         }
     }
 
@@ -258,6 +272,9 @@ impl Command {
             50 => Some(SearchSource(v)),
             51 => plain(SearchAllSources),
             52 => plain(ManageSources),
+            53 => plain(StatusItem),
+            54 => plain(QuitNow),
+            55 => plain(CancelShutdown),
             _ => None,
         }
     }
@@ -323,6 +340,6 @@ mod tests {
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
-        assert_eq!(Command::from_tag(53 << SHIFT), None);
+        assert_eq!(Command::from_tag(56 << SHIFT), None);
     }
 }

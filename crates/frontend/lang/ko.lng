@@ -411,6 +411,7 @@ ProfileBadName="{name}"은(는) 프로필 이름으로 사용할 수 없습니�
 ProfileCreate=프로필 "{name}"이(가) 아직 없습니다. 만드시겠습니까?\n\n새로 설치한 것처럼 빈 상태로 다음 위치에서 시작합니다:\n{folder}
 MacTranslocated=macOS가 Rookparcel을 임시 사본에서 실행하고 있어 Rookparcel.app 옆의 rookparcel.ini가 보이지 않습니다. Finder로 Rookparcel.app을 원하는 폴더(또는 응용 프로그램)로 옮긴 뒤 다시 시작하십시오.
 EndSessionSaving=토렌트 목록과 진행 상황을 저장하는 중...
+MacAssocKept=macOS는 다른 프로그램을 선택할 때까지 Rookparcel을 .torrent 파일과 magnet: 링크의 프로그램으로 유지합니다. .torrent 파일은 Finder에서(정보 가져오기, 다음으로 열기, 모두 변경), magnet: 링크는 다른 프로그램의 설정에서 선택하십시오.
 ExitTitle=Rookparcel을 닫는 중
 ExitElapsed=닫는 중 ({time} 경과)
 ExitStopping=토렌트를 멈추는 중...

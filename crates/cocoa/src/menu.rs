@@ -452,6 +452,10 @@ mod tests {
                     | Command::ManageSources
                     | Command::Label(_)
                     | Command::Profile(_)
+                    // slice G: the status item's button, the closing window's and the countdown's
+                    | Command::StatusItem
+                    | Command::QuitNow
+                    | Command::CancelShutdown
             )
         };
         for c in crate::commands::ALL {

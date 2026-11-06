@@ -14,124 +14,16 @@
 //! - The `.torrent` and `magnet:` defaults through LaunchServices, which names programs by bundle
 //!   id, so only Rookparcel.app can be registered ([`bundle_id`]).
 //!
-//! The plist text is plain Rust, built and tested on every system; the bindings below it are
-//! hand-written against the frameworks (as `rookparcel_frontend::lang`'s Core Foundation one).
+//! The plist text is plain Rust in `rookparcel_frontend::integration::mac`, shared with the
+//! native Mac GUI and tested on every system; the bindings below are hand-written against the
+//! frameworks (as `rookparcel_frontend::lang`'s Core Foundation one).
 
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
-/// The `.torrent` type's UTI when LaunchServices does not know one for the extension: what the
-/// bundle's `Info.plist` imports (`.github/scripts/macos_bundle.py`), as Transmission exports it.
-pub const TORRENT_UTI: &str = "org.bittorrent.torrent";
-
-/// The URL scheme of magnet links, as LaunchServices names it.
-pub const MAGNET_SCHEME: &str = "magnet";
-
-/// A LaunchAgent property list that starts `program` (the executable and its arguments) at
-/// login: `RunAtLoad`, in the graphical (Aqua) session only, as an interactive process (no
-/// background throttling), with no `KeepAlive` (quitting Rookparcel is not a crash). launchd
-/// reads `~/Library/LaunchAgents` when the user logs in; writing the file starts nothing now.
-pub fn launch_agent(label: &str, program: &[String]) -> String {
-    let mut s = String::from(concat!(
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
-        "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" ",
-        "\"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n",
-        "<plist version=\"1.0\">\n<dict>\n",
-    ));
-    s.push_str(&format!("\t<key>Label</key>\n\t<string>{}</string>\n", escape(label)));
-    s.push_str("\t<key>ProgramArguments</key>\n\t<array>\n");
-    for arg in program {
-        s.push_str(&format!("\t\t<string>{}</string>\n", escape(arg)));
-    }
-    s.push_str("\t</array>\n");
-    s.push_str("\t<key>RunAtLoad</key>\n\t<true/>\n");
-    s.push_str("\t<key>LimitLoadToSessionType</key>\n\t<string>Aqua</string>\n");
-    s.push_str("\t<key>ProcessType</key>\n\t<string>Interactive</string>\n");
-    s.push_str("</dict>\n</plist>\n");
-    s
-}
-
-/// What a LaunchAgent written by [`launch_agent`] (or by hand, in XML) starts at login: its
-/// `ProgramArguments`, or `Program` alone; `None` when it does not run at load or is
-/// `Disabled`, or is not an XML plist (a binary one is not read: we never write one).
-pub fn launch_agent_arguments(text: &str) -> Option<Vec<String>> {
-    if !value_after_key(text, "RunAtLoad").is_some_and(|v| v.starts_with("<true/>")) {
-        return None;
-    }
-    if value_after_key(text, "Disabled").is_some_and(|v| v.starts_with("<true/>")) {
-        return None;
-    }
-    if let Some(v) = value_after_key(text, "ProgramArguments") {
-        let body = v.strip_prefix("<array>")?;
-        let body = &body[..body.find("</array>")?];
-        let mut out = Vec::new();
-        let mut rest = body.trim_start();
-        while !rest.is_empty() {
-            let (s, after) = string_value(rest)?;
-            out.push(s);
-            rest = after.trim_start();
-        }
-        return (!out.is_empty()).then_some(out);
-    }
-    let (program, _) = string_value(value_after_key(text, "Program")?)?;
-    Some(vec![program])
-}
-
-/// The text right after `<key>key</key>` and the blanks that follow it.
-fn value_after_key<'a>(text: &'a str, key: &str) -> Option<&'a str> {
-    let tag = format!("<key>{key}</key>");
-    let at = text.find(&tag)?;
-    Some(text[at + tag.len()..].trim_start())
-}
-
-/// A `<string>` element at the start of `text`: its value and what follows it.
-fn string_value(text: &str) -> Option<(String, &str)> {
-    if let Some(after) = text.strip_prefix("<string/>") {
-        return Some((String::new(), after));
-    }
-    let body = text.strip_prefix("<string>")?;
-    let end = body.find("</string>")?;
-    Some((unescape(&body[..end]), &body[end + "</string>".len()..]))
-}
-
-fn escape(s: &str) -> String {
-    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
-}
-
-/// The five predefined entities and numeric references (what an XML plist may contain).
-fn unescape(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(at) = rest.find('&') {
-        out.push_str(&rest[..at]);
-        rest = &rest[at..];
-        let Some(end) = rest.find(';') else { break };
-        let entity = &rest[1..end];
-        let c = match entity {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            _ => entity
-                .strip_prefix("#x")
-                .map(|h| u32::from_str_radix(h, 16).ok())
-                .unwrap_or_else(|| entity.strip_prefix('#').and_then(|d| d.parse().ok()))
-                .and_then(char::from_u32),
-        };
-        match c {
-            Some(c) => {
-                out.push(c);
-                rest = &rest[end + 1..];
-            }
-            None => {
-                out.push('&');
-                rest = &rest[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
-}
+#[cfg(target_os = "macos")]
+pub use rookparcel_frontend::integration::mac::{
+    MAGNET_SCHEME, TORRENT_UTI, launch_agent, launch_agent_arguments,
+};
 
 #[cfg(target_os = "macos")]
 pub use sys::{
@@ -414,69 +306,5 @@ mod sys {
             on_url(url);
         }
         0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(v: &[&str]) -> Vec<String> {
-        v.iter().map(|s| (*s).to_owned()).collect()
-    }
-
-    #[test]
-    fn a_launch_agent_is_read_back() {
-        let program = args(&["/Applications/Rookparcel.app/Contents/MacOS/Rookparcel", "--minimized"]);
-        let text = launch_agent("io.github.balls0fsteel.Rookparcel", &program);
-        assert!(text.contains("<key>Label</key>\n\t<string>io.github.balls0fsteel.Rookparcel</string>"));
-        assert!(text.contains("<key>RunAtLoad</key>\n\t<true/>"));
-        assert_eq!(launch_agent_arguments(&text), Some(program));
-    }
-
-    #[test]
-    fn odd_characters_survive_the_round_trip() {
-        let program = args(&["/Users/a&b/<Rookparcel> \"x\"/Rookparcel", ""]);
-        let text = launch_agent("l", &program);
-        assert!(text.contains("a&amp;b/&lt;Rookparcel&gt;"));
-        assert_eq!(launch_agent_arguments(&text), Some(program));
-    }
-
-    #[test]
-    fn agents_that_do_not_start_at_login_are_not_ours() {
-        let text = launch_agent("l", &args(&["/p"]));
-        let off = text.replace("<key>RunAtLoad</key>\n\t<true/>", "<key>RunAtLoad</key>\n\t<false/>");
-        assert_eq!(launch_agent_arguments(&off), None);
-        let disabled = text.replace("<dict>\n", "<dict>\n\t<key>Disabled</key>\n\t<true/>\n");
-        assert_eq!(launch_agent_arguments(&disabled), None);
-        assert_eq!(launch_agent_arguments("bplist00\u{1}"), None);
-        assert_eq!(launch_agent_arguments(""), None);
-    }
-
-    #[test]
-    fn hand_written_agents_are_read() {
-        // a `Program` key alone, entities and blanks as other tools write them
-        let text = "<plist version=\"1.0\"><dict><key>Label</key><string>x</string>\
-            <key>Program</key>  <string>/Applications/P&#x26;T.app/Contents/MacOS/Rookparcel</string>\
-            <key>RunAtLoad</key> <true/></dict></plist>";
-        assert_eq!(
-            launch_agent_arguments(text),
-            Some(args(&["/Applications/P&T.app/Contents/MacOS/Rookparcel"]))
-        );
-        let text = "<dict><key>RunAtLoad</key><true/><key>ProgramArguments</key>\n<array>\n\
-            <string>/a</string><string/>\n<string>&#45;&#45;minimized &amp; &quot;more&quot;</string></array></dict>";
-        assert_eq!(launch_agent_arguments(text), Some(args(&["/a", "", "--minimized & \"more\""])));
-        // an empty list, or something other than strings in it
-        let text = "<key>RunAtLoad</key><true/><key>ProgramArguments</key><array></array>";
-        assert_eq!(launch_agent_arguments(text), None);
-        let text =
-            "<key>RunAtLoad</key><true/><key>ProgramArguments</key><array><integer>1</integer></array>";
-        assert_eq!(launch_agent_arguments(text), None);
-    }
-
-    #[test]
-    fn unknown_entities_are_left_alone() {
-        assert_eq!(unescape("a &bogus; b & c &#xZZ;"), "a &bogus; b & c &#xZZ;");
-        assert_eq!(unescape("&lt;&gt;&apos;&#169;"), "<>'\u{a9}");
     }
 }

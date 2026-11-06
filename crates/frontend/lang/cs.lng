@@ -411,6 +411,7 @@ ProfileBadName="{name}" nemůže být názvem profilu. Název profilu má 1 až 
 ProfileCreate=Profil "{name}" zatím neexistuje. Vytvořit ho?\n\nZačne prázdný, jako nová instalace, ve složce:\n{folder}
 MacTranslocated=macOS spouští Rookparcel z dočasné kopie, takže soubor rookparcel.ini vedle Rookparcel.app není vidět. Přesuňte Rookparcel.app pomocí Finderu do požadované složky (nebo do Aplikací) a spusťte jej znovu.
 EndSessionSaving=Ukládání seznamu torrentů a průběhu...
+MacAssocKept=macOS ponechá Rookparcel jako program pro soubory .torrent a odkazy magnet:, dokud nevyberete jiný: pro soubory .torrent ve Finderu (Informace, Otevřít v aplikaci, Změnit vše), pro odkazy magnet: v nastavení druhého programu.
 ExitTitle=Rookparcel se zavírá
 ExitElapsed=Zavírání trvá {time}
 ExitStopping=Zastavování torrentů...

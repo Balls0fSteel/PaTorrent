@@ -411,6 +411,7 @@ ProfileBadName=A(z) "{name}" nem lehet profilnév. A profilnév 1–32 karakterb
 ProfileCreate=A(z) "{name}" profil még nem létezik. Létrehozza?\n\nÜresen indul, mint egy új telepítés, itt:\n{folder}
 MacTranslocated=A macOS ideiglenes másolatból futtatja a Rookparcelet, ezért a Rookparcel.app melletti rookparcel.ini nem látszik. Helyezze át a Rookparcel.app-ot a Finderrel a kívánt mappába (vagy az Alkalmazások közé), és indítsa újra.
 EndSessionSaving=A torrentlista és a haladás mentése...
+MacAssocKept=A macOS a Rookparcelt hagyja a .torrent fájlok és a magnet: hivatkozások programjának, amíg másikat nem választanak: a .torrent fájlokhoz a Finderben (Információ, Megnyitás ezzel, Az összes módosítása), a magnet: hivatkozásokhoz a másik program beállításaiban.
 ExitTitle=A Rookparcel bezárul
 ExitElapsed=Bezárás folyamatban: {time}
 ExitStopping=A torrentek leállítása...

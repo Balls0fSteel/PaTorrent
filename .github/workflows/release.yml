@@ -445,10 +445,13 @@ jobs:
           plutil -lint Rookparcel.app/Contents/Info.plist
           archs="$(lipo -archs Rookparcel.app/Contents/MacOS/Rookparcel)"
           echo "Rookparcel.app/Contents/MacOS/Rookparcel: $archs"
-          case " $archs " in
-            *" arm64 "*" x86_64 "* | *" x86_64 "*" arm64 "*) ;;
-            *) echo "::error::the app's binary is not universal ($archs)"; exit 1 ;;
-          esac
+          # each name on its own: in " x86_64 arm64 " the two share the space between them
+          for arch in arm64 x86_64; do
+            case " $archs " in
+              *" $arch "*) ;;
+              *) echo "::error::the app's binary is not universal ($archs)"; exit 1 ;;
+            esac
+          done
           du -sh Rookparcel.app
       # nox links only the system (Secure Transport, D9)
       - name: nox's libraries

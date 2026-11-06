@@ -74,4 +74,5 @@ pub mod settings;
 pub mod setup_guide;
 pub mod status;
 pub mod torrent_folders;
+pub mod typeahead;
 pub mod update;

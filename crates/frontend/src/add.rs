@@ -14,6 +14,7 @@ use rookparcel_core::{
     TorrentHandle, TorrentId,
 };
 
+use crate::detail::FileFilter;
 use crate::options::GuiOptions;
 use crate::prefs::Prefs;
 
@@ -83,6 +84,13 @@ pub struct FileTree {
     priority: Vec<DownloadPriority>,
     /// Visible node indices, in display order.
     rows: Vec<u32>,
+    /// The file filter (D50's rule); see [`FileTree::set_filter`].
+    filter: FileFilter,
+    /// Per node, while the filter is on: a file that matches, or a folder holding one. Empty
+    /// while it is off.
+    shown: Vec<bool>,
+    /// Files that match, while the filter is on.
+    shown_files: usize,
 }
 
 impl FileTree {
@@ -111,6 +119,9 @@ impl FileTree {
             wanted: Vec::new(),
             priority: Vec::new(),
             rows: Vec::new(),
+            filter: FileFilter::default(),
+            shown: Vec::new(),
+            shown_files: 0,
         };
         // (parent node, name) -> folder node
         let mut dirs: std::collections::HashMap<(u32, String), u32> = std::collections::HashMap::new();
@@ -221,15 +232,106 @@ impl FileTree {
         }
     }
 
+    /// The visible rows: the shown nodes, below expanded folders (every folder while the filter
+    /// is on).
     fn rebuild_rows(&mut self) {
         self.rows.clear();
-        let mut stack: Vec<u32> = self.roots.iter().rev().copied().collect();
+        let filtering = self.filter.is_on();
+        let mut stack: Vec<u32> = self.roots.iter().rev().copied().filter(|&n| self.is_shown(n)).collect();
         while let Some(n) = stack.pop() {
             self.rows.push(n);
-            if let Kind::Dir { children, expanded: true, .. } = &self.nodes[n as usize].kind {
-                stack.extend(children.iter().rev());
+            if let Kind::Dir { children, expanded, .. } = &self.nodes[n as usize].kind {
+                if *expanded || filtering {
+                    let shown = &self.shown;
+                    stack.extend(children.iter().rev().filter(|&&c| !filtering || shown[c as usize]));
+                }
             }
         }
+    }
+
+    /// Whether node `n` passes the filter (always, while it is off).
+    fn is_shown(&self, n: u32) -> bool {
+        !self.filter.is_on() || self.shown.get(n as usize).copied().unwrap_or(false)
+    }
+
+    /// Sets the file filter's text (the box above the list, D50's rule: every word of `text`
+    /// must appear, ignoring case, in a file's `/`-joined path below the torrent's folder, as
+    /// the list shows it). True when the words changed, so the rows were rebuilt and the view
+    /// must reload (row count, selection, scroll position); false when only spacing changed.
+    ///
+    /// While the filter is on ([`FileFilter::is_on`]):
+    /// - the rows ([`FileTree::len`], [`FileTree::row`]) and nodes ([`FileTree::children`],
+    ///   [`FileTree::node`]) hold only the matching files and the folders above them;
+    /// - every shown folder is open (its row says `folder: Some(true)`); expanding or
+    ///   collapsing changes only the remembered state, which comes back when the filter is
+    ///   cleared;
+    /// - Select All / None, the check box and priority of folder rows act on their shown files
+    ///   only, while a folder's check, size and priority still sum up all its files.
+    pub fn set_filter(&mut self, text: &str) -> bool {
+        if !self.filter.set_text(text) {
+            return false;
+        }
+        self.refilter();
+        self.rebuild_rows();
+        true
+    }
+
+    /// The file filter, for its text and whether it is on.
+    pub fn filter(&self) -> &FileFilter {
+        &self.filter
+    }
+
+    /// How many torrent files the filter lets through: [`FileTree::num_files`] while it is
+    /// off. For the "12 of 3,400 files" label beside the box.
+    pub fn shown_files(&self) -> usize {
+        if self.filter.is_on() { self.shown_files } else { self.num_files() }
+    }
+
+    /// Rebuilds `shown` from the filter. Every node has a higher index than its folder, so the
+    /// folders' paths are ready before their children's, and walking backwards marks a
+    /// folder after all of its children.
+    fn refilter(&mut self) {
+        self.shown.clear();
+        self.shown_files = 0;
+        if !self.filter.is_on() {
+            return;
+        }
+        self.shown.resize(self.nodes.len(), false);
+        let mut dir_paths: Vec<String> = vec![String::new(); self.nodes.len()];
+        let mut path = String::new();
+        for (i, node) in self.nodes.iter().enumerate() {
+            path.clear();
+            if node.parent != NO_PARENT {
+                path.push_str(&dir_paths[node.parent as usize]);
+                path.push('/');
+            }
+            path.push_str(&node.name);
+            match node.kind {
+                Kind::Dir { .. } => dir_paths[i] = path.clone(),
+                Kind::File(_) => {
+                    if self.filter.matches(&path) {
+                        self.shown[i] = true;
+                        self.shown_files += 1;
+                    }
+                }
+            }
+        }
+        for i in (0..self.nodes.len()).rev() {
+            let parent = self.nodes[i].parent;
+            if self.shown[i] && parent != NO_PARENT {
+                self.shown[parent as usize] = true;
+            }
+        }
+    }
+
+    /// The next visible row, from row `start` on and wrapping around, whose name starts with
+    /// `prefix` ignoring case: the list's type-ahead ([`crate::typeahead`]; feed it a
+    /// [`crate::typeahead::TypeAhead`]'s prefix and start row). `None` for an empty prefix or
+    /// no match.
+    pub fn find_row(&self, prefix: &str, start: usize) -> Option<usize> {
+        crate::typeahead::find(self.rows.len(), start, prefix, |i| {
+            self.nodes[self.rows[i] as usize].name.as_str()
+        })
     }
 
     /// Visible rows.
@@ -247,21 +349,27 @@ impl FileTree {
 
     /// The tree's nodes by index, for a view that keeps its own expansion (macOS's outline
     /// view): the top nodes for `None`, else the children of folder `node`, in display order.
-    /// A node's index stays the same for the tree's life.
+    /// A node's index stays the same for the tree's life. While the filter is on, only the
+    /// shown nodes ([`FileTree::set_filter`]); a hidden folder has none.
     pub fn children(&self, node: Option<usize>) -> Vec<usize> {
         let ids = match node {
             None => &self.roots,
             Some(n) => match self.nodes.get(n).map(|n| &n.kind) {
-                Some(Kind::Dir { children, .. }) => children,
+                Some(Kind::Dir { children, .. }) if self.is_shown(n as u32) => children,
                 _ => return Vec::new(),
             },
         };
-        ids.iter().map(|&n| n as usize).collect()
+        ids.iter().filter(|&&n| self.is_shown(n)).map(|&n| n as usize).collect()
     }
 
-    /// Node `n` as a row (whether or not its folders are expanded here).
+    /// Node `n` as a row (whether or not its folders are expanded here); `None` for a node the
+    /// filter hides. While the filter is on, folders say they are open (`folder: Some(true)`).
     pub fn node(&self, n: usize) -> Option<Row<'_>> {
         let node = self.nodes.get(n)?;
+        if !self.is_shown(n as u32) {
+            return None;
+        }
+        let filtering = self.filter.is_on();
         Some(match &node.kind {
             &Kind::File(fi) => {
                 let fi = fi as usize;
@@ -282,7 +390,7 @@ impl FileTree {
             Kind::Dir { expanded, files, wanted, size, priority, .. } => Row {
                 name: &node.name,
                 depth: node.depth,
-                folder: Some(*expanded),
+                folder: Some(*expanded || filtering),
                 check: match *wanted {
                     0 => Check::Off,
                     w if w == *files => Check::On,
@@ -301,13 +409,16 @@ impl FileTree {
         })
     }
 
-    /// Expands or collapses the folder in row `i`; false for files.
+    /// Expands or collapses the folder in row `i`; false for files. See
+    /// [`FileTree::set_expanded`].
     pub fn toggle_expanded(&mut self, i: usize) -> bool {
         self.set_expanded(i, None)
     }
 
     /// Expands (`Some(true)`), collapses (`Some(false)`) or toggles (`None`) the folder in row
-    /// `i`; true if it changed.
+    /// `i`; true if the rows changed (the view must reload). While the filter is on, every
+    /// shown folder stays open: this changes only the folder's remembered state, used once the
+    /// filter is cleared, and returns false.
     pub fn set_expanded(&mut self, i: usize, to: Option<bool>) -> bool {
         let Some(&n) = self.rows.get(i) else { return false };
         let Kind::Dir { expanded, .. } = &mut self.nodes[n as usize].kind else { return false };
@@ -316,6 +427,9 @@ impl FileTree {
             return false;
         }
         *expanded = new;
+        if self.filter.is_on() {
+            return false;
+        }
         self.rebuild_rows();
         true
     }
@@ -331,40 +445,46 @@ impl FileTree {
         rows.iter().filter_map(|&r| self.rows.get(r).map(|&n| n as usize)).collect()
     }
 
-    /// The torrent files in node `n` (the folder's files, recursively).
+    /// The torrent files in node `n` (the folder's files, recursively); while the filter is
+    /// on, only the shown ones.
     fn files_of(&self, n: usize, out: &mut Vec<usize>) {
-        if n >= self.nodes.len() {
+        if n >= self.nodes.len() || !self.is_shown(n as u32) {
             return;
         }
         let mut stack = vec![n as u32];
         while let Some(n) = stack.pop() {
             match &self.nodes[n as usize].kind {
                 Kind::File(fi) => out.push(*fi as usize),
-                Kind::Dir { children, .. } => stack.extend(children),
+                Kind::Dir { children, .. } => stack.extend(children.iter().filter(|&&c| self.is_shown(c))),
             }
         }
     }
 
     /// Clicking the check box of the given rows: a row that is fully on turns off, anything
-    /// else turns on. With several rows, the first decides for all of them.
+    /// else turns on. With several rows, the first decides for all of them. While the filter
+    /// is on, a folder row changes only its shown files (its check box still sums up all of
+    /// them, so a folder whose hidden files stay off may remain mixed).
     pub fn toggle_checks(&mut self, rows: &[usize]) {
         let nodes = self.nodes_of(rows);
         self.toggle_node_checks(&nodes);
     }
 
+    /// Checks or unchecks the rows' files: a folder's files recursively, only the shown ones
+    /// while the filter is on.
     pub fn set_checks(&mut self, rows: &[usize], on: bool) {
         let nodes = self.nodes_of(rows);
         self.set_node_checks(&nodes, on);
     }
 
-    /// [`FileTree::toggle_checks`] of nodes ([`FileTree::children`]).
+    /// [`FileTree::toggle_checks`] of nodes ([`FileTree::children`]); hidden nodes are left
+    /// alone.
     pub fn toggle_node_checks(&mut self, nodes: &[usize]) {
         let Some(first) = nodes.first().and_then(|&n| self.node(n)) else { return };
         let on = first.check != Check::On;
         self.set_node_checks(nodes, on);
     }
 
-    /// [`FileTree::set_checks`] of nodes.
+    /// [`FileTree::set_checks`] of nodes; hidden nodes are left alone.
     pub fn set_node_checks(&mut self, nodes: &[usize], on: bool) {
         let mut files = Vec::new();
         for &n in nodes {
@@ -376,10 +496,11 @@ impl FileTree {
         self.recount();
     }
 
-    /// Select All / Select None.
+    /// Select All / Select None: every file, or only the shown files while the filter is on
+    /// (hidden files keep their check).
     pub fn set_all(&mut self, on: bool) {
         for (fi, node) in self.node_of.iter().enumerate() {
-            if node.is_some() {
+            if node.is_some_and(|n| self.is_shown(n)) {
                 self.wanted[fi] = on;
             }
         }
@@ -387,13 +508,14 @@ impl FileTree {
     }
 
     /// Sets the priority of the rows' files; "Don't Download" unchecks them, anything else
-    /// checks them.
+    /// checks them. While the filter is on, a folder row changes only its shown files.
     pub fn set_priority(&mut self, rows: &[usize], p: DownloadPriority) {
         let nodes = self.nodes_of(rows);
         self.set_node_priority(&nodes, p);
     }
 
-    /// [`FileTree::set_priority`] of nodes ([`FileTree::children`]).
+    /// [`FileTree::set_priority`] of nodes ([`FileTree::children`]); hidden nodes are left
+    /// alone.
     pub fn set_node_priority(&mut self, nodes: &[usize], p: DownloadPriority) {
         let mut files = Vec::new();
         for &n in nodes {
@@ -981,6 +1103,164 @@ mod tests {
         t.toggle_checks(&[0]);
         assert_eq!(t.sizes(), (18_000, 20_000));
         assert!(start.elapsed().as_secs() < 5);
+
+        // filtering, keystroke by keystroke, stays quick too
+        let start = std::time::Instant::now();
+        for text in ["f", "f1", "f19", "f199", "f1999", "D9/s4/ f1999"] {
+            assert!(t.set_filter(text));
+        }
+        assert_eq!(t.shown_files(), 1);
+        assert_eq!(names(&t), ["d9", "s4", "f1999"]);
+        assert_eq!(t.find_row("F1", 0), Some(2));
+        assert!(t.set_filter("s3"));
+        assert_eq!(t.shown_files(), 2_857);
+        // the s3 files outside d0 (whose 286 s3 files are off already) go off
+        t.set_all(false);
+        assert_eq!(t.sizes(), (18_000 - (2_857 - 286), 20_000));
+        assert!(t.set_filter(""));
+        assert_eq!(t.len(), 20_000 + 10 + 70);
+        assert!(start.elapsed().as_secs() < 5);
+    }
+
+    #[test]
+    fn the_filter_shows_matches_and_their_folders() {
+        let mut t = sample();
+        assert!(!t.filter().is_on());
+        assert_eq!(t.shown_files(), 5);
+        // every word must be in the path below the torrent's folder, ignoring case
+        assert!(t.set_filter("SUB bin"));
+        assert!(t.filter().is_on());
+        assert_eq!(t.filter().text(), "SUB bin");
+        assert_eq!(names(&t), ["dir", "sub", "c.bin"]);
+        assert_eq!(t.shown_files(), 1);
+        assert_eq!(t.parent_row(2), Some(1));
+        assert!(!t.set_filter("  sub   BIN "), "the same words");
+        assert!(t.set_filter("bin"));
+        assert_eq!(names(&t), ["dir", "b.bin", "sub", "c.bin", "d.bin"]);
+        assert_eq!(t.shown_files(), 3);
+        // the folder sums up all its files
+        assert_eq!(t.row(0).unwrap().size, 11_100);
+        assert!(t.set_filter("nothing"));
+        assert_eq!(t.len(), 0);
+        assert_eq!(t.shown_files(), 0);
+        assert!(t.children(None).is_empty());
+        assert!(t.set_filter(""));
+        assert!(!t.filter().is_on());
+        assert_eq!(names(&t), ["a.txt", "dir", "b.bin", "sub", "c.bin", "d.bin", "e.iso"]);
+        assert_eq!(t.shown_files(), 5);
+    }
+
+    #[test]
+    fn the_filter_hides_nodes() {
+        let mut t = sample();
+        let (a, dir, sub, c) = (0, 1, 3, 4);
+        assert_eq!(t.node(a).unwrap().name, "a.txt");
+        t.set_filter("sub");
+        assert_eq!(t.children(None), [dir]);
+        assert_eq!(t.children(Some(dir)), [sub]);
+        assert_eq!(t.children(Some(sub)), [c]);
+        assert!(t.node(a).is_none(), "hidden");
+        assert!(t.children(Some(a)).is_empty());
+        assert_eq!(t.node(c).unwrap().name, "c.bin");
+        assert_eq!(t.row(0), t.node(dir));
+        // hidden nodes are left alone
+        t.set_node_checks(&[a], false);
+        t.set_node_priority(&[a], DownloadPriority::DONT_DOWNLOAD);
+        t.toggle_node_checks(&[a]);
+        assert!(t.file_priorities().iter().filter(|p| p.0 == 4).count() == 5);
+    }
+
+    #[test]
+    fn select_all_and_none_act_on_the_shown_files() {
+        let mut t = sample();
+        t.set_filter("bin");
+        t.set_all(false);
+        let prios: Vec<u8> = t.file_priorities().iter().map(|p| p.0).collect();
+        assert_eq!(prios, [4, 0, 0, 0, 0, 4], "a.txt and e.iso stay checked");
+        assert_eq!(t.row(0).unwrap().check, Check::Off);
+        t.set_filter("");
+        assert_eq!(t.sizes(), (100_010, 111_110));
+        t.set_filter("iso");
+        t.set_all(false);
+        t.set_filter("");
+        t.set_all(true);
+        assert_eq!(t.sizes(), (111_110, 111_110));
+    }
+
+    #[test]
+    fn folders_act_on_their_shown_files() {
+        let mut t = sample();
+        t.set_filter("sub");
+        // the folder row "dir" holds only sub/c.bin now
+        t.toggle_checks(&[0]);
+        let prios: Vec<u8> = t.file_priorities().iter().map(|p| p.0).collect();
+        assert_eq!(prios, [4, 4, 0, 0, 4, 4]);
+        assert_eq!(t.row(0).unwrap().check, Check::Mixed, "b.bin and d.bin are still on");
+        // a mixed folder turns its shown files on
+        t.toggle_checks(&[0]);
+        assert_eq!(t.row(0).unwrap().check, Check::On);
+        t.set_checks(&[1], false);
+        assert_eq!(t.file_priorities()[2].0, 0);
+        assert_eq!(t.row(0).unwrap().check, Check::Mixed);
+
+        let mut t = sample();
+        t.set_filter("d.bin");
+        assert_eq!(names(&t), ["dir", "d.bin"]);
+        t.set_priority(&[0], DownloadPriority::TOP);
+        let prios: Vec<u8> = t.file_priorities().iter().map(|p| p.0).collect();
+        assert_eq!(prios, [4, 4, 4, 0, 7, 4]);
+        assert_eq!(t.row(0).unwrap().priority, None, "the folder's files differ");
+        t.set_node_priority(&[1], DownloadPriority::DONT_DOWNLOAD);
+        assert_eq!(t.file_priorities()[4].0, 0);
+        assert_eq!(t.file_priorities()[1].0, 4);
+    }
+
+    #[test]
+    fn clearing_the_filter_restores_the_folders() {
+        let mut t = sample();
+        assert!(t.toggle_expanded(3), "sub collapsed");
+        t.set_filter("c.bin");
+        // shown folders are open while filtering
+        assert_eq!(names(&t), ["dir", "sub", "c.bin"]);
+        assert_eq!(t.row(1).unwrap().folder, Some(true));
+        // expanding or collapsing only changes what comes back
+        assert!(!t.set_expanded(1, Some(true)), "sub to be expanded");
+        assert!(!t.toggle_expanded(0), "dir to be collapsed");
+        assert!(!t.toggle_expanded(2), "a file");
+        assert_eq!(names(&t), ["dir", "sub", "c.bin"]);
+        t.set_filter("");
+        assert_eq!(names(&t), ["a.txt", "dir", "e.iso"]);
+        assert!(t.set_expanded(1, Some(true)));
+        assert_eq!(names(&t), ["a.txt", "dir", "b.bin", "sub", "c.bin", "d.bin", "e.iso"]);
+
+        let mut t = sample();
+        assert!(t.toggle_expanded(3));
+        t.set_filter("bin");
+        t.set_filter("");
+        assert_eq!(names(&t), ["a.txt", "dir", "b.bin", "sub", "d.bin", "e.iso"]);
+    }
+
+    #[test]
+    fn type_ahead_finds_rows() {
+        let mut t = sample();
+        // a.txt, dir, b.bin, sub, c.bin, d.bin, e.iso
+        assert_eq!(t.find_row("D", 0), Some(1));
+        assert_eq!(t.find_row("d", 2), Some(5));
+        assert_eq!(t.find_row("d", 6), Some(1), "wraps");
+        assert_eq!(t.find_row("A.T", 3), Some(0));
+        assert_eq!(t.find_row("x", 0), None);
+        assert_eq!(t.find_row("", 0), None);
+        // only visible rows
+        t.toggle_expanded(1);
+        assert_eq!(t.find_row("b", 0), None);
+        t.toggle_expanded(1);
+        t.set_filter("sub");
+        assert_eq!(t.find_row("c", 0), Some(2));
+        assert_eq!(t.find_row("a", 0), None);
+        // with the buffer: "s" cycles from the first row
+        let mut ta = crate::typeahead::TypeAhead::new();
+        let (prefix, from) = ta.push('S', std::time::Instant::now(), Some(0));
+        assert_eq!(t.find_row(prefix, from), Some(1));
     }
 
     #[test]

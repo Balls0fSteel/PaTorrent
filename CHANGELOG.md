@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_194729_1793990849: 1.2.19: the Mac VM is the only Mac
+
+- The owner has no Mac but the Intel VM, so the release notes now say the app was tried by hand "in an Intel Mac virtual machine", not yet on a Retina screen; the draft's text on GitHub follows. arm64 by hand, Retina and a real dark menu bar stay open (BACKLOG "macOS").
+- More on the VM with the release app (its own window pictures, the screen being locked): the status icon is the coloured stamp, drawn the same in light and dark appearance; the main window in dark mode. `spctl --assess` rejects a copy flagged as downloaded (Gatekeeper's first refusal, as the notes say); unflagged copies start, as every VM run did.
+
 ## 2026-11-06_190632_1793988392: v1.2.19 tagged; the first native macOS release run built the draft
 
 - **Fixed (release workflow):** the first trial run (Actions > Release on `main`) failed a universal app: `lipo -archs` prints `x86_64 arm64`, and the check's pattern `*" x86_64 "*" arm64 "*` needs a space on both sides of each name, which the two share. Each architecture is now looked for on its own. Only the workflow changed, so no version bump.

@@ -343,9 +343,10 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   `shouldPresentNotification:` with YES. **Unchecked:** on the VM macOS shows none of the dev
   app's notifications, in front or behind (`com.apple.ncprefs` holds the bundle id with `auth` 6,
   probably a denial from an earlier run; `UNUserNotificationCenter` says "not allowed"), so the
-  delegate was never asked. The release dmg is ad-hoc signed as well: the owner's Mac may refuse
-  them the same way. Check there with Rookparcel allowed in System Settings > Notifications, a
-  download finishing with the app in front and behind. (B) Done: a portable run copies the
+  delegate was never asked. The release dmg is ad-hoc signed as well, so other Macs may refuse
+  them the same way. The owner has no Mac but the VM (2026-11-06): check there once the owner
+  allows Rookparcel in System Settings > Notifications (`~/rp/M/m.sh notify`, `BACK=1` for
+  behind). (B) Done: a portable run copies the
   `io.github.balls0fsteel.Rookparcel` defaults domain at the start and puts it back at Quit
   (`mac/defaults.rs`). On the VM the panel wrote `NSNav*`, `NSOSPLastRootDirectory` and two
   window frames during the run, and the domain was identical afterwards. Where there was no plist,
@@ -358,9 +359,13 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   (D) Done: `lifecycle::show_window` keeps our windows that were in front of the main one in front
   (all of them while it was hidden), the front one with the keyboard. Checked with real clicks on
   the status item, 1.2.17 against 1.2.19: with Finder in front, with the main window hidden, and
-  both. The plain show/hide toggle is unchanged. For the owner's real Mac: arm64, Retina, the
-  status icon in light and dark menu bars, Gatekeeper's Open Anyway on a downloaded dmg, Hide
-  Others, a drop on the Dock icon, notifications (A).
+  both. The plain show/hide toggle is unchanged.
+  The 1.2.19 release dmg (2026-11-06_194729_1793990849): on GitHub's arm64 runner it ran 20 s and
+  drew the Setup Guide; on the VM it mounted, verified, started portable and quit cleanly; its
+  status icon is the coloured stamp, drawn the same in light and dark; `spctl` rejects a copy
+  marked as downloaded. No real Mac is available (owner), so these stay open: arm64 by hand,
+  Retina, the icon on a real dark menu bar, Open Anyway itself (it asks the owner's password on
+  the VM), Hide Others, a drop on the Dock icon, notifications (A).
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

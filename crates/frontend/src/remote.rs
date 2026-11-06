@@ -23,6 +23,15 @@ pub const FILE_NAME: &str = "remote.ini";
 /// How long connecting (and each certificate check) may take before it is given up.
 pub const TIMEOUT: Duration = Duration::from_secs(15);
 
+/// The command-line switch that makes a process a remote window (File > Connect to Remote
+/// starts one; GTK and the Mac GUI).
+pub const SWITCH: &str = "--remote";
+
+/// Whether these arguments (without the program's name) ask for a remote window.
+pub fn requested(args: &[String]) -> bool {
+    args.iter().any(|a| a == SWITCH)
+}
+
 /// What the connect dialog shows and returns.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Form {
@@ -174,6 +183,15 @@ impl Failure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_remote_switch() {
+        let a = |s: &[&str]| s.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert!(requested(&a(&["--remote"])));
+        assert!(requested(&a(&["--profile", "work", "--remote"])));
+        assert!(!requested(&a(&[])));
+        assert!(!requested(&a(&["--profile", "remote", "x.torrent"])));
+    }
 
     #[test]
     fn folders_and_labels() {

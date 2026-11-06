@@ -45,6 +45,8 @@ pub struct Args {
     pub demo: Option<usize>,
     /// When the process started (for the time until the list shows).
     pub started: Instant,
+    /// Slice J: `--remote`, a remote window (`remote`).
+    pub remote: bool,
 }
 
 /// The application: the controller, and what `--demo` measures.
@@ -188,13 +190,51 @@ fn start(mtm: MainThreadMarker, args: Args) {
     // one main window, no document tabs (and no Show Tab Bar items in View)
     objc2_app_kit::NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
     menu::build_main(mtm);
-    let dirs = paths::dirs();
-    let mut prefs = Prefs::load(dirs.config.join("rookparcel.ini"));
-    // (`true`: the Setup Guide comes before a first start, D53; until slice J builds it, the
-    // start goes on with the options as they are, unsaved, so the guide is offered again)
-    let (opts, _guide_first) = fapp::prepare_options(&mut prefs, &paths::downloads(), false);
-    let session = match args.demo {
-        Some(n) => Session::start_mock(
+    // (from the start: the Setup Guide and the Connect to Remote dialog come first)
+    crate::snapshots::start(mtm);
+    // slice J: a named profile without folders asks first; a remote window connects first
+    if !crate::profiles::ensure_exists() {
+        return NSApplication::sharedApplication(mtm).terminate(None);
+    }
+    if args.remote {
+        return crate::remote::ask(move |c| open(mtm, args, Some(c)));
+    }
+    open(mtm, args, None)
+}
+
+/// The window on a new engine session (after the Setup Guide at a first start), or on a remote
+/// server's (slice J).
+fn open(mtm: MainThreadMarker, args: Args, remote: Option<crate::remote::Connected>) {
+    let remote_window = remote.is_some();
+    let (dirs, prefs, opts, remote, session) = match remote {
+        Some(c) => {
+            let (dirs, prefs, opts) = crate::remote::prepare(&c);
+            (dirs, prefs, opts, Some(fapp::Remote { label: c.label }), Some(c.session))
+        }
+        None => {
+            let dirs = paths::dirs();
+            // before the Setup Guide: a second start meanwhile hands over to this one
+            if args.demo.is_none() && LOCK.with(|k| k.borrow().is_none()) {
+                match fapp::lock_library(&dirs.data) {
+                    Ok(lock) => LOCK.with(|k| *k.borrow_mut() = lock),
+                    // slice G: a Rookparcel of this profile runs: it gets what this start opens
+                    Err(_) if crate::mac::open::forward_to_running(&dirs.data, mtm) => return,
+                    Err((heading, text)) => return give_up(&heading, &text, mtm),
+                }
+            }
+            let mut prefs = Prefs::load(dirs.config.join("rookparcel.ini"));
+            let (opts, guide_first) = fapp::prepare_options(&mut prefs, &paths::downloads(), false);
+            // slice J: the Setup Guide before a first start (D53; not for a demo), then this
+            // again, which finds the file no longer empty
+            if guide_first && args.demo.is_none() {
+                return crate::setup_guide::first_start(opts, prefs, move || open(mtm, args, None));
+            }
+            (dirs, prefs, opts, None, None)
+        }
+    };
+    let session = match (session, args.demo) {
+        (Some(s), _) => s,
+        (None, Some(n)) => Session::start_mock(
             opts.settings.clone(),
             MockConfig {
                 initial_torrents: n,
@@ -204,13 +244,7 @@ fn start(mtm: MainThreadMarker, args: Args) {
                 ..MockConfig::default()
             },
         ),
-        None => {
-            match fapp::lock_library(&dirs.data) {
-                Ok(lock) => LOCK.with(|k| *k.borrow_mut() = lock),
-                // slice G: a Rookparcel of this profile runs: it gets what this start opens
-                Err(_) if crate::mac::open::forward_to_running(&dirs.data, mtm) => return,
-                Err((heading, text)) => return give_up(&heading, &text, mtm),
-            }
+        (None, None) => {
             let p = profile::current();
             match Session::start(SessionParams {
                 settings: opts.settings.clone(),
@@ -229,7 +263,7 @@ fn start(mtm: MainThreadMarker, args: Args) {
     let wake: fapp::Wake = Arc::new(|w: Wakeup| mainq::on_main(move || on_wake(w)));
     let core = Core::start(Start {
         session,
-        remote: None,
+        remote,
         prefs,
         options: opts,
         dirs,
@@ -269,10 +303,13 @@ fn start(mtm: MainThreadMarker, args: Args) {
         );
         NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes);
     }
-    crate::snapshots::start(mtm);
     // slice G: the status item, the translocation notice, --minimized, the association check,
-    // what was opened before
-    crate::mac::started(mtm);
+    // what was opened before (slice J: a remote window opens nothing local)
+    if remote_window {
+        crate::remote::started(mtm)
+    } else {
+        crate::mac::started(mtm)
+    }
     log_line(&format!(
         "{} started{}",
         profile::name_build(),
@@ -500,6 +537,8 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
     };
     let enabled = match cmd {
         Command::StartAll | Command::StopAll => peek(|c| !c.list().is_empty()).unwrap_or(false),
+        // slice J: the client's files are on this Mac, not a remote server
+        Command::ImportQbt | Command::ImportUt => crate::import::enabled(),
         _ => true,
     };
     (enabled, checked)

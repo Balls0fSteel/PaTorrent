@@ -117,7 +117,9 @@ fn main() -> std::process::ExitCode {
         ui::alert(ui::Style::Error, &tr!(FolderInUse, folder = old.display()), "", &[], mtm);
         return ExitCode::FAILURE;
     }
-    let delegate = app::RPAppDelegate::new(app::Args { demo: demo_arg(&args), started }, mtm);
+    // slice J: `--remote` makes this process a remote window
+    let remote = remote::requested(&args);
+    let delegate = app::RPAppDelegate::new(app::Args { demo: demo_arg(&args), started, remote }, mtm);
     app.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     app.run();
     ExitCode::SUCCESS

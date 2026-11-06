@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_132853_1793968133
+Last updated: 2026-11-06_142501_1793971501
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,7 +18,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Waves 0 and 1 are merged (1.2.6-1.2.13): the controller, the crate, the main window, detail tabs, Preferences, torrent dialogs and macOS integration, each checked on the VM with its screen locked (mouse, keyboard and context-menu checks wait for an unlocked screen, BACKLOG "macOS").
+- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Waves 0-2 are merged (1.2.6-1.2.16): every window and dialog of the GTK GUI, each checked on the VM with its screen locked (mouse, keyboard and context-menu checks wait for an unlocked screen, BACKLOG "macOS"). A release build lists 100,000 demo torrents in 1.1 s on the VM (6.2 MB, x86_64).
 
 - **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services; repository, Pages, wiki and screenshots renamed. **1.2.5, the first release as Rookparcel, is published (2026-11-06)**; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak.
 
@@ -32,7 +32,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**macOS next (2026-11-06_132853_1793968133):** wave 2 of [MACOS_GUI.md](docs/MACOS_GUI.md) (slices H RSS, I search, J profiles and setup, in parallel worktrees), then review and merge each with a version bump and a VM run; an unlocked VM screen (the owner) for the interactive checks of waves 1-2.
+**macOS next (2026-11-06_142501_1793971501):** wave 3 of [MACOS_GUI.md](docs/MACOS_GUI.md): slice L, the validation (needs the VM's screen unlocked by the owner for the interactive checks of waves 1-2, then the owner's real Mac for arm64, Retina and Gatekeeper), and slice K, the release switch from the GTK bundle, merged only after L passes.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

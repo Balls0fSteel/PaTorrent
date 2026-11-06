@@ -208,6 +208,25 @@ Waves run in order; slices in a wave run in parallel in their own worktrees. My 
 
 ### Wave 1 (after A and B are merged)
 
+#### Wave 1 contracts (1.2.8)
+
+The functions wave 1's slices call in each other exist as stubs, already wired, so every branch builds on its own. Fill your own; call the others as they are; do not change their signatures (if one does not fit, say so in the report).
+
+| Function | Filled by | Called by |
+|---|---|---|
+| `dialogs::add::handle(AddStep)`: the dialog for `Dialog`, a message for `AlreadyInList` and `Error` | F | C (dropped files), G (opened files and links) |
+| `dialogs::add::from_events(magnet_ready, adds)` | F | `app::apply` |
+| `dialogs::input::ask(title, prompt, initial, done)` | F | C (New Label), J later |
+| `detail::refresh()`: redraw the shown tab from `Core::detail` | D | `app::apply` (`Events::detail`), C after a selection change |
+| `detail::show_tab(Tab)` | D | the window's tab delegate |
+| `detail::find() -> bool`: the Files filter takes Find | D | `app::run(Find)` |
+| `prefs::open()`, `prefs::open_at(key)` | E | the menus, C (the status bar's network click) |
+| `mac::integration()`, `mac::set_integration(old, new)`, `mac::associations_settable()` | G | E (Preferences > General) |
+| `mac::power::on_events(..)`, `mac::update::on_events(..)`, `mac::status_item::update()`, `mac::notify::completed(..)` | G | `app::apply` |
+| `mac::open::open(urls)` | G | `RPAppDelegate` |
+
+Slice C owns the rest of `app.rs` and `window.rs`: keep `apply`'s one-line-per-slice calls as they are. A slice that needs another hook adds one line and names it in its report.
+
 #### C. Main window
 
 - **Mirror:** GTK `app.rs` (`build`'s window part, `refresh`, `selection_changed`, `update_status`, `add_actions`, `torrent_menu`, `menu_state`, `remove`, `open_folder`, `set_download_location`, `set_label`, `set_limit`, `popup_menu`), `list.rs`, `sidebar.rs`; Win32 `app.rs` for the View toggles' prefs keys.

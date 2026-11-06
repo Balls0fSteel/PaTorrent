@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_112615_1793960775: Version 1.2.8: the Mac GUI's wave 1 contracts
+
+- Stubs for what wave 1's slices call in each other, wired into `app::apply` and Find, so each branch builds alone and the merges stay small: `dialogs::add::{handle, from_events}` (F), `detail::{refresh, find}` (D), `mac::{integration, set_integration, associations_settable}`, `mac::power::on_events`, `mac::update::on_events`, `mac::status_item::update` (G). Listed in MACOS_GUI.md "Wave 1 contracts". Clippy for both Apple targets and Windows, fmt.
+
 ## 2026-11-06_112123_1793960483: Version 1.2.7: `rookparcel-mac`, the native macOS GUI's foundation (slice B)
 
 - New `crates/cocoa` (`rookparcel-mac`, D61) on objc2 0.6 / objc2-app-kit 0.3 (macOS-only, default features off; THIRD-PARTY-NOTICES rows added): the helper layer later slices build on (`RPTarget` command dispatch, `RPTableSource` virtual tables and outlines, `RPCanvas`, `ui/` controls, layout, alerts and panels, the full menu tree with Mac shortcuts, SF Symbols, D27 images, `ROOKPARCEL_SNAPSHOTS`), the main window shell, and a stub per later slice that logs "not yet". Other systems build a stub. 26 Mac menu strings in all 35 languages (machine translations; fa, sr, hr, bg, nb, pl, hu, it, zh-Hant and tr are the least sure).

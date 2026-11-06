@@ -6,3 +6,7 @@
 pub fn start() {
     crate::app::not_yet("status item");
 }
+
+/// The status item's tooltip (`Core::tray_tip`) after `Events::status`.
+/// Not yet built (slice G).
+pub fn update() {}

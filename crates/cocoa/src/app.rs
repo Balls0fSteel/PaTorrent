@@ -279,15 +279,18 @@ pub fn apply(ev: Option<Events>) {
     if !ev.completed.is_empty() {
         crate::mac::notify::completed(&ev.completed);
     }
+    // (one line per slice: each fills its own module's function)
+    if ev.detail {
+        crate::detail::refresh();
+    }
+    if ev.status {
+        crate::mac::status_item::update();
+    }
     if ev.magnet_ready || !ev.adds.is_empty() {
-        not_yet("the Add New Torrent dialog for a magnet or a downloaded .torrent (slice F)");
+        crate::dialogs::add::from_events(ev.magnet_ready, ev.adds);
     }
-    if ev.auto_shutdown.is_some() || ev.power.is_some() || ev.power_after_exit.is_some() {
-        not_yet("Auto Shutdown's countdown and power actions (slice G)");
-    }
-    if ev.update.is_some() || ev.update_notice {
-        not_yet("the update offer and notice (slice G)");
-    }
+    crate::mac::power::on_events(ev.auto_shutdown, ev.power, ev.power_after_exit);
+    crate::mac::update::on_events(ev.update, ev.update_notice);
     if ev.quit {
         NSApplication::sharedApplication(mtm).terminate(None);
     }
@@ -496,6 +499,9 @@ pub fn run(cmd: Command) {
     match cmd {
         Quit => NSApplication::sharedApplication(mtm).terminate(None),
         Find => {
+            if crate::detail::find() {
+                return;
+            }
             if let Some(u) = ui() {
                 u.window.makeFirstResponder(Some(&u.search));
             }

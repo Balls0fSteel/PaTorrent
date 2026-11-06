@@ -52,6 +52,8 @@ pub enum CellKind {
     IconText,
     /// A drawn bar (`canvas::Bar`).
     Bar,
+    /// A canvas of this kind (`CellValue::Drawn`), as the Pieces list's Blocks cells.
+    Drawn(canvas::Kind),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,6 +103,8 @@ pub enum CellValue {
     Text(String),
     IconText(Option<Retained<NSImage>>, String),
     Bar(canvas::Bar),
+    /// A `CellKind::Drawn` cell's value and the text VoiceOver reads for it.
+    Drawn(Box<dyn std::any::Any>, String),
     Empty,
 }
 
@@ -574,6 +578,9 @@ fn make_cell(spec: &ColumnSpec, mtm: MainThreadMarker) -> Retained<NSView> {
             mtm,
         ));
     }
+    if let CellKind::Drawn(kind) = spec.kind {
+        return Retained::into_super(RPCanvas::new(kind, Box::new(()), mtm));
+    }
     let cell = NSTableCellView::new(mtm);
     let text = text_cell(spec, mtm);
     cell.addSubview(&text);
@@ -605,9 +612,16 @@ fn make_cell(spec: &ColumnSpec, mtm: MainThreadMarker) -> Retained<NSView> {
 
 fn fill_cell(view: &NSView, value: CellValue) {
     if let Some(c) = view.downcast_ref::<RPCanvas>() {
-        if let CellValue::Bar(bar) = value {
-            c.set_accessibility("", &bar.text);
-            c.set_value(Box::new(bar));
+        match value {
+            CellValue::Bar(bar) => {
+                c.set_accessibility("", &bar.text);
+                c.set_value(Box::new(bar));
+            }
+            CellValue::Drawn(v, text) => {
+                c.set_accessibility("", &text);
+                c.set_value(v);
+            }
+            _ => {}
         }
         return;
     }
@@ -616,6 +630,7 @@ fn fill_cell(view: &NSView, value: CellValue) {
         CellValue::Text(t) => (None, t),
         CellValue::IconText(i, t) => (i, t),
         CellValue::Bar(b) => (None, b.text),
+        CellValue::Drawn(_, t) => (None, t),
         CellValue::Empty => (None, String::new()),
     };
     // SAFETY: the cell's own subviews, set in `make_cell`.

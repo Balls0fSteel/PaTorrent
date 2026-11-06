@@ -291,6 +291,13 @@ impl Core {
         Some(PathBuf::from(&st.save_path).join(&st.name))
     }
 
+    /// The torrent the detail tabs show: its status and whether the user paused it (the
+    /// General tab's texts, `detail::general`). `None` while nothing is selected.
+    pub fn detail_torrent(&self) -> Option<(&rookparcel_core::TorrentStatus, bool)> {
+        let id = self.detail.id?;
+        Some((self.list.get(id)?, self.list.extra(id).user_paused))
+    }
+
     // ---- the Files tab ----------------------------------------------------------------------
 
     /// The Files tab's quick filter (D50); true when the rows it lets through changed.

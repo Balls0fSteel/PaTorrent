@@ -207,6 +207,7 @@ fn start(mtm: MainThreadMarker, args: Args) {
 
     let ui = Rc::new(window::build(sidebar(mtm), torrent_table(&columns, sort, mtm), mtm));
     UI.with(|u| *u.borrow_mut() = Some(ui.clone()));
+    crate::detail::install(&ui);
     ui.window.center();
     ui.window.makeKeyAndOrderFront(None);
     NSApplication::sharedApplication(mtm).activate();
@@ -563,6 +564,9 @@ pub fn run(cmd: Command) {
         | InitialSeeding | DownLimit(_) | UpLimit(_) | NewLabel | RemoveLabel | Label(_) => {
             crate::torrent_menu::run(cmd)
         }
+        FileFilter | FileOpen | FileOpenFolder | FileByOrder | FilePriority(_) | FileRelocate => {
+            crate::detail::run(cmd)
+        }
     }
 }
 
@@ -573,6 +577,9 @@ fn collapse(item: &NSSplitViewItem, collapsed: bool) {
 
 /// Whether a command is enabled now, and whether it shows a check mark.
 pub fn state(cmd: Command) -> (bool, Option<bool>) {
+    if let Some(s) = crate::detail::state(cmd) {
+        return s;
+    }
     let checked = match cmd {
         Command::Profile(i) => {
             let me = profile::menu(&paths::profiles_root()).get(i as usize).is_some_and(|(_, me)| *me);

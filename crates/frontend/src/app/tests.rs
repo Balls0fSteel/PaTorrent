@@ -415,3 +415,24 @@ fn menu_state_and_remove_question_follow_the_selection() {
     assert!(core.remove_question(&[a], false).is_none());
     assert!(core.remove_question(&[a], true).is_some());
 }
+
+#[test]
+fn the_detail_tabs_show_the_first_selected_torrent() {
+    let mut s = Setup::new();
+    s.prefs.set_bool(&format!("torrent.{}.paused", hash(2).key_hex()), true);
+    let mut core = s.start("detail-torrent");
+    core.handle_alerts(vec![Alert::StateUpdate(vec![status(1, 1, "a", false), status(2, 2, "b", false)])]);
+    let (a, b) = (TorrentId::from_raw(1), TorrentId::from_raw(2));
+    assert!(core.detail_torrent().is_none());
+    core.select(&[b, a]);
+    let (st, paused) = core.detail_torrent().unwrap();
+    assert_eq!((st.name.as_str(), paused), ("b", true));
+    core.select(&[a]);
+    let (st, paused) = core.detail_torrent().unwrap();
+    assert_eq!((st.name.as_str(), paused), ("a", false));
+    core.show_tab(Tab::Files);
+    assert_eq!(core.tab(), Tab::Files);
+    assert!(core.events().detail);
+    core.select(&[]);
+    assert!(core.detail_torrent().is_none());
+}

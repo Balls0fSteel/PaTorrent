@@ -81,7 +81,30 @@ pub enum Command {
     SearchSource(u16),
     SearchAllSources,
     ManageSources,
+    // slice D: the Files tab's filter and menu
+    /// The Files tab's filter field changed (D50).
+    FileFilter,
+    /// Files: Open (also a double click or Return).
+    FileOpen,
+    /// Files: Open Containing Folder.
+    FileOpenFolder,
+    /// Files: Prioritize by File Order.
+    FileByOrder,
+    /// Files: a priority, an index into `detail::PRIORITIES` (the last is Don't Download).
+    FilePriority(u16),
+    /// Files: Relocate.
+    FileRelocate,
 }
+
+/// The Files tab's commands (slice D), apart from [`ALL`], whose menus they are not in.
+pub const FILES: [Command; 6] = [
+    Command::FileFilter,
+    Command::FileOpen,
+    Command::FileOpenFolder,
+    Command::FileByOrder,
+    Command::FileRelocate,
+    Command::FilePriority(0),
+];
 
 /// Every command: those without a value, then those with one (at index 0).
 pub const ALL: [Command; 52] = [
@@ -199,6 +222,13 @@ impl Command {
             SearchSource(i) => (50, i),
             SearchAllSources => (51, 0),
             ManageSources => (52, 0),
+            // slice D
+            FileFilter => (53, 0),
+            FileOpen => (54, 0),
+            FileOpenFolder => (55, 0),
+            FileByOrder => (56, 0),
+            FilePriority(i) => (57, i),
+            FileRelocate => (58, 0),
         }
     }
 
@@ -258,6 +288,13 @@ impl Command {
             50 => Some(SearchSource(v)),
             51 => plain(SearchAllSources),
             52 => plain(ManageSources),
+            // slice D
+            53 => plain(FileFilter),
+            54 => plain(FileOpen),
+            55 => plain(FileOpenFolder),
+            56 => plain(FileByOrder),
+            57 => Some(FilePriority(v)),
+            58 => plain(FileRelocate),
             _ => None,
         }
     }
@@ -323,6 +360,15 @@ mod tests {
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
-        assert_eq!(Command::from_tag(53 << SHIFT), None);
+        assert_eq!(Command::from_tag(59 << SHIFT), None);
+    }
+
+    #[test]
+    fn files_tags_round_trip() {
+        for c in FILES.into_iter().chain([Command::FilePriority(3)]) {
+            assert_eq!(Command::from_tag(c.tag()), Some(c), "{c:?}");
+            assert!(!ALL.contains(&c));
+            assert!(!c.needs_selection(), "the Files tab's selection is not the list's");
+        }
     }
 }

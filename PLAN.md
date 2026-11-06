@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_194729_1793990849
+Last updated: 2026-11-06_200404_1793991844
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**Release 1.2.19, the first native Mac app (2026-11-06_194729_1793990849):** `v1.2.19` is tagged and its draft built ([notes](docs/releases/1.2.19.md)); the dmg ran on GitHub's arm64 runner and the Intel VM. The owner has no real Mac, so the notes say "an Intel Mac virtual machine". Optional before publishing: the owner allows notifications on the VM for a check. Then publish (`gh release edit v1.2.19 --draft=false`). After publishing: push the local branch `site-1.2.19` (native-app site text, news entry; set its date) and `docs/wiki` to the wiki.
+**Release 1.2.19, the first native Mac app (2026-11-06_200404_1793991844):** `v1.2.19` is tagged and its draft built ([notes](docs/releases/1.2.19.md)); the dmg ran on GitHub's arm64 runner and the Intel VM. The owner has no real Mac, so the notes say "an Intel Mac virtual machine". Notifications show on the VM once allowed. Next: publish (`gh release edit v1.2.19 --draft=false`). After publishing: push the local branch `site-1.2.19` (native-app site text, news entry; set its date) and `docs/wiki` to the wiki.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
@@ -69,7 +69,7 @@ Original gate numbers are retained for references in source comments and release
 | 5 | 100,000-torrent scale gate (D21) | Measure on low-end Windows and Linux (proposal: 2 cores, 4 GB RAM, HDD); measure GTK, the Web UI's per-client model and idle CPU, and bulk removal of 1,000 torrents (last observed 0.5-1.4 s of engine alerts). Fix measured bottlenecks. |
 | 6 | Windows release zip | Done: the release job builds and smoke-tests the zip and the NSIS installer (D31). 1.1.2's zip and setup passed on a clean Windows 11 VM (2026-10-29, `tools/windows-clean`: start, static CRT, upgrade, uninstall, all users). Remaining, needing a desktop: SmartScreen on a real download, the wizard and UAC pages, "Run Rookparcel" not elevated, drag and drop, double-click associations. |
 | 7 | Linux packages | x86_64/aarch64 tarballs, GUI/nox AppImages and Flatpaks build. Run desktop AppImage and Flatpak checks, including schemas, icons, tray, HTTPS, associations and the Background portal. Flathub still needs screenshots, submission changes and the owner's exception text; see RELEASING.md. |
-| 8 | macOS (D61) | The native AppKit GUI replaces the GTK bundle from 1.2.18: one universal `Rookparcel-<version>-macos.dmg`, macOS 11, validated on the Intel VM (slice L) and, as the 1.2.19 release dmg, on GitHub's arm64 runner. The owner has no real Mac: arm64 by hand and Retina stay unchecked; notifications wait for the owner to allow them on the VM. |
+| 8 | macOS (D61) | The native AppKit GUI replaces the GTK bundle from 1.2.18: one universal `Rookparcel-<version>-macos.dmg`, macOS 11, validated on the Intel VM (slice L) and, as the 1.2.19 release dmg, on GitHub's arm64 runner. The owner has no real Mac: arm64 by hand and Retina stay unchecked; notifications show on the VM once allowed. |
 | 9 | Manual GUI checks | Preferences (all pages, OK/Cancel/Apply, proxy and Advanced), Add (files/folders, priorities, labels, recent paths, real magnet OK/Cancel), Create, Properties (multi-select and DPI), RSS with a public feed, scheduler/hour boundary, Auto Shutdown with `ROOKPARCEL_POWER_DRY_RUN=1`, Windows integration on the real registry, moving completed data / Set Download Location across drives, seeding goals and .torrent folders. Check Pieces progress and newly resized/font-changed dialogs. |
 | 10 | Icon integration and validation | Bold UI family (D27) integrated in both GUIs. Remaining: non-100% DPI, the Trackers tab with live trackers, GTK light/dark, tray/About and macOS Retina/light/dark menu bars. |
 | 11 | Service integration | Run the nox Windows service under the real elevated SCM, including restart-on-failure and shutdown behavior. Install and exercise FreeBSD rc.d with root (only syntax-checked so far). |

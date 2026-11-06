@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_200404_1793991844: 1.2.19's Mac notifications work once allowed
+
+- The VM never showed them because Rookparcel's notifications were switched off in System Settings (its `com.apple.ncprefs` flags lack the "allowed" bit every allowed app has), so `UNUserNotificationCenter` answered "not allowed" without asking. Once the owner allowed them, the 1.2.19 release app showed "Download Complete" as a banner with Rookparcel in front and with Finder in front (usernoted: "Presenting ... as banner"). No code change; the notes now say to turn them on there if none appear.
+- Found on the way: usernoted refuses the legacy `NSUserNotificationCenter` for this id ("You can't mix modern clients with legacy clients"), even in a process that never touches the modern centre, so the legacy fallback and the delegate 1.2.19 sets at the start do nothing. Harmless; BACKLOG "macOS" (A) has the cleanup. Checked with a test build that used one centre at a time, not committed.
+
 ## 2026-11-06_194729_1793990849: 1.2.19: the Mac VM is the only Mac
 
 - The owner has no Mac but the Intel VM, so the release notes now say the app was tried by hand "in an Intel Mac virtual machine", not yet on a Retina screen; the draft's text on GitHub follows. arm64 by hand, Retina and a real dark menu bar stay open (BACKLOG "macOS").

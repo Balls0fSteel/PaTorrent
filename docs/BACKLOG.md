@@ -340,13 +340,14 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   Slice L (2026-11-06_155728_1793977048, validated on the unlocked VM): the interactive checks
   above passed. Its four open items were worked in 1.2.19 (2026-11-06_162621_1793978781):
   (A) `RPAppDelegate` is now also `NSUserNotificationCenter`'s delegate and answers
-  `shouldPresentNotification:` with YES. **Unchecked:** on the VM macOS shows none of the dev
-  app's notifications, in front or behind (`com.apple.ncprefs` holds the bundle id with `auth` 6,
-  probably a denial from an earlier run; `UNUserNotificationCenter` says "not allowed"), so the
-  delegate was never asked. The release dmg is ad-hoc signed as well, so other Macs may refuse
-  them the same way. The owner has no Mac but the VM (2026-11-06): check there once the owner
-  allows Rookparcel in System Settings > Notifications (`~/rp/M/m.sh notify`, `BACK=1` for
-  behind). (B) Done: a portable run copies the
+  `shouldPresentNotification:` with YES. Checked (2026-11-06_200404_1793991844): on the VM the
+  notifications were switched off in System Settings (`com.apple.ncprefs` flags without
+  `0x02000000`, so `UNUserNotificationCenter` answered "not allowed"). Once the owner allowed
+  them, the 1.2.19 release app showed "Download Complete" as a banner with Rookparcel in front
+  and behind. **Follow-up (cosmetic):** usernoted files the id as a modern client, so the legacy
+  centre is useless: its delegate, set at the start, only logs "You can't mix modern clients with
+  legacy clients", and a legacy-only process was denied. Drop the legacy fallback and its delegate
+  at the next Mac change. (B) Done: a portable run copies the
   `io.github.balls0fsteel.Rookparcel` defaults domain at the start and puts it back at Quit
   (`mac/defaults.rs`). On the VM the panel wrote `NSNav*`, `NSOSPLastRootDirectory` and two
   window frames during the run, and the domain was identical afterwards. Where there was no plist,
@@ -365,7 +366,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   status icon is the coloured stamp, drawn the same in light and dark; `spctl` rejects a copy
   marked as downloaded. No real Mac is available (owner), so these stay open: arm64 by hand,
   Retina, the icon on a real dark menu bar, Open Anyway itself (it asks the owner's password on
-  the VM), Hide Others, a drop on the Dock icon, notifications (A).
+  the VM), Hide Others, a drop on the Dock icon.
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

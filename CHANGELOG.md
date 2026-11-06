@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_122817_1793964497: Version 1.2.9: the Mac main window (slice C)
+
+- The main window runs on `Core`: the torrent list with all 24 columns, state icons, the Done bar, sorting and column layout in prefs; the sidebar's category and label counts (Feeds rows wait for slice H); the status bar with the update link and the network part's click to Preferences > Connection; every Torrent and context-menu command (Remove's sheet, labels through the input dialog, bandwidth, Initial Seeding, Set Download Location, Open Containing Folder, Start/Stop All); double-click, Return and ⌫; `.torrent` files dropped on the window.
+- The layout (View toggles, split sizes, tab, frame, toolbar items) is kept in `rookparcel.ini` through the new `frontend::app::Layout` (Win32's keys plus `ui.mac.*`), with AppKit's frame and toolbar autosaves off, so portable mode writes nothing to `~/Library/Preferences` (checked on the VM: the plist's hash did not change).
+- Checked on the VM with real torrents from `rookparcel-nox create` and autoload (counts, labels, statuses, a restored custom layout, View toggles kept, idle 0.0 %). **Not checked** (the VM's screen was locked, so no row could be selected): the context menu, Remove's sheet, the check marks on a selection, header clicks, Return/⌫/double-click, dropping files, Open Containing Folder. Windows: clippy (both Apple targets, Windows), fmt, the Mac and frontend tests.
+
 ## 2026-11-06_112615_1793960775: Version 1.2.8: the Mac GUI's wave 1 contracts
 
 - Stubs for what wave 1's slices call in each other, wired into `app::apply` and Find, so each branch builds alone and the merges stay small: `dialogs::add::{handle, from_events}` (F), `detail::{refresh, find}` (D), `mac::{integration, set_integration, associations_settable}`, `mac::power::on_events`, `mac::update::on_events`, `mac::status_item::update` (G). Listed in MACOS_GUI.md "Wave 1 contracts". Clippy for both Apple targets and Windows, fmt.

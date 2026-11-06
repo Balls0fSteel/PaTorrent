@@ -1,26 +1,36 @@
 //! The main window, µTorrent 2.2.1's layout in AppKit (docs/MACOS_GUI.md "Main window"):
 //!
-//! - an `NSToolbar` (customizable, autosaved; SF Symbols): Add Torrent, Add URL, Create |
+//! - an `NSToolbar` (customizable; SF Symbols): Add Torrent, Add URL, Create |
 //!   Remove | Start, Pause, Stop | Queue Up, Queue Down | RSS | flexible space | the search field,
 //!   whose `searchMenuTemplate` is the search mode menu;
 //! - an `NSSplitViewController`: the source-list sidebar, and a vertical split of the torrent
 //!   table over an `NSTabView` of the 7 detail tabs;
 //! - the status bar in the window's bottom content border.
 //!
-//! `RPWindowDelegate` is the window's, the toolbar's and the tab view's delegate. Slice B builds
-//! the shell; slice C fills the sidebar, the list's cells and the status bar from `Core`, slice D
-//! the tabs.
+//! `RPWindowDelegate` is the window's, the toolbar's and the tab view's delegate, and takes the
+//! `.torrent` files dropped on the window (the window passes its dragging messages to its
+//! delegate). Slice B builds the shell; slice C fills the sidebar, the list and the status bar
+//! from `Core`, slice D the tabs.
+//!
+//! The layout (View toggles, split sizes, the detail tab, the frame, the toolbar's items and
+//! mode) is kept in `rookparcel.ini` through `frontend::app::Layout`, never in AppKit's
+//! autosave (frame and toolbar autosave write `~/Library/Preferences` even in portable mode).
+
+use std::path::PathBuf;
 
 use objc2::rc::Retained;
 use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, Message, define_class, msg_send};
 use objc2_app_kit::{
-    NSBackingStoreType, NSImageView, NSOutlineView, NSSearchField, NSSearchFieldCell, NSSplitViewController,
-    NSSplitViewItem, NSStackView, NSTabView, NSTabViewDelegate, NSTabViewItem, NSTextField, NSToolbar,
-    NSToolbarDelegate, NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarSpaceItemIdentifier,
-    NSView, NSViewController, NSWindow, NSWindowDelegate, NSWindowStyleMask,
+    NSBackingStoreType, NSButton, NSCellImagePosition, NSColor, NSDragOperation, NSDraggingDestination,
+    NSDraggingInfo, NSFont, NSLineBreakMode, NSOutlineView, NSPasteboardTypeFileURL, NSSearchField,
+    NSSearchFieldCell, NSSplitViewController, NSSplitViewItem, NSStackView, NSTabView, NSTabViewDelegate,
+    NSTabViewItem, NSTextField, NSToolbar, NSToolbarDelegate, NSToolbarDisplayMode,
+    NSToolbarFlexibleSpaceItemIdentifier, NSToolbarItem, NSToolbarSpaceItemIdentifier, NSView,
+    NSViewController, NSWindow, NSWindowDelegate, NSWindowStyleMask,
 };
-use objc2_foundation::{NSArray, NSPoint, NSRect, NSRectEdge, NSSize, NSString};
+use objc2_foundation::{NSArray, NSPoint, NSRect, NSRectEdge, NSSize, NSString, NSURL};
+use rookparcel_frontend::app::Layout;
 use rookparcel_frontend::detail::Tab;
 use rookparcel_frontend::{lang, tr};
 
@@ -31,6 +41,11 @@ use crate::ui::{self, layout};
 
 /// The status bar's height (the bottom content border).
 pub const STATUS_HEIGHT: f64 = 24.0;
+
+/// The sidebar's width until the user moves it (room for "Downloading (1234)").
+const SIDEBAR_WIDTH: f64 = 180.0;
+/// The detail tabs' height until the user moves the split.
+const DETAIL_HEIGHT: f64 = 220.0;
 
 /// The toolbar's buttons, in their default order; `None` is a space.
 const TOOLBAR: [Option<Command>; 14] = [
@@ -78,10 +93,10 @@ fn tool_text(cmd: Command) -> &'static str {
 /// The status bar's parts.
 pub struct Status {
     pub stack: Retained<NSStackView>,
-    /// The update notice (hidden until there is one).
-    pub update: Retained<NSTextField>,
-    pub net_icon: Retained<NSImageView>,
-    pub network: Retained<NSTextField>,
+    /// The update notice, a link (hidden until there is one).
+    pub update: Retained<NSButton>,
+    /// The network icon and text (a click leads to the port while another program has it).
+    pub network: Retained<NSButton>,
     pub dht: Retained<NSTextField>,
     pub down: Retained<NSTextField>,
     pub up: Retained<NSTextField>,
@@ -150,7 +165,40 @@ define_class!(
             tab_selected(tabs, item);
         }
     }
+
+    // the window passes the dragging messages it gets to its delegate
+    unsafe impl NSDraggingDestination for RPWindowDelegate {
+        #[unsafe(method(draggingEntered:))]
+        fn dragging_entered(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> NSDragOperation {
+            if dropped_torrents(info).is_empty() { NSDragOperation::None } else { NSDragOperation::Copy }
+        }
+
+        #[unsafe(method(performDragOperation:))]
+        fn perform_drag(&self, info: &ProtocolObject<dyn NSDraggingInfo>) -> bool {
+            let paths = dropped_torrents(info);
+            let any = !paths.is_empty();
+            if any {
+                // once the drag is over: adding may open dialogs
+                crate::mainq::on_main(move || crate::list::add_files(paths));
+            }
+            any
+        }
+    }
 );
+
+/// The `.torrent` files a drag carries.
+fn dropped_torrents(info: &ProtocolObject<dyn NSDraggingInfo>) -> Vec<PathBuf> {
+    let Some(items) = info.draggingPasteboard().pasteboardItems() else { return Vec::new() };
+    // SAFETY: AppKit's pasteboard type constant.
+    let file_url = unsafe { NSPasteboardTypeFileURL };
+    items
+        .iter()
+        .filter_map(|i| i.stringForType(file_url))
+        .filter_map(|s| NSURL::URLWithString(&s))
+        .filter_map(|u| u.path().map(|p| PathBuf::from(p.to_string())))
+        .filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("torrent")))
+        .collect()
+}
 
 fn tab_selected(tabs: &NSTabView, item: Option<&NSTabViewItem>) {
     let Some(item) = item else { return };
@@ -266,26 +314,31 @@ fn tabs(delegate: &RPWindowDelegate, mtm: MainThreadMarker) -> Retained<NSTabVie
 
 /// The status bar's stack, in the bottom content border.
 fn status_bar(mtm: MainThreadMarker) -> Status {
+    let small = || NSFont::systemFontOfSize(NSFont::smallSystemFontSize());
     let label = |s: &str| {
         let l = ui::truncating_label(s, mtm);
-        l.setFont(Some(&objc2_app_kit::NSFont::systemFontOfSize(
-            objc2_app_kit::NSFont::smallSystemFontSize(),
-        )));
+        l.setFont(Some(&small()));
         l
     };
-    let update = label("");
+    // borderless buttons that look like the labels beside them
+    let link = |cmd: Command| {
+        let b = ui::button("", cmd, mtm);
+        b.setBordered(false);
+        b.setFont(Some(&small()));
+        b.setLineBreakMode(NSLineBreakMode::ByTruncatingTail);
+        b
+    };
+    let update = link(Command::UpdateNotice);
+    update.setContentTintColor(Some(&NSColor::linkColor()));
     update.setHidden(true);
-    update.setTextColor(Some(&objc2_app_kit::NSColor::linkColor()));
-    let net_icon = NSImageView::new(mtm);
-    ui::controls::auto(&net_icon);
-    layout::width(&net_icon, 16.0);
-    layout::height(&net_icon, 16.0);
-    let (network, dht, down, up) = (label(""), label(""), label(""), label(""));
+    let network = link(Command::NetworkStatus);
+    network.setImagePosition(NSCellImagePosition::ImageLeading);
+    let (dht, down, up) = (label(""), label(""), label(""));
     let spacer = layout::spacer(mtm);
-    let stack = layout::hstack(&[&update, &spacer, &net_icon, &network, &dht, &down, &up], mtm);
+    let stack = layout::hstack(&[&update, &spacer, &network, &dht, &down, &up], mtm);
     stack.setSpacing(16.0);
     layout::insets(&stack, 0.0, 12.0, 0.0, 12.0);
-    Status { stack, update, net_icon, network, dht, down, up }
+    Status { stack, update, network, dht, down, up }
 }
 
 /// Builds the main window around the sidebar outline and the torrent table (made by the
@@ -314,7 +367,10 @@ pub fn build(
     unsafe { window.setReleasedWhenClosed(false) };
     window.setTitle(&NSString::from_str(&rookparcel_frontend::profile::name_build()));
     window.setContentMinSize(NSSize::new(560.0, 320.0));
-    window.setFrameAutosaveName(&NSString::from_str("Main"));
+    // the frame is kept in the prefs (`Layout`): no frame autosave, no state restoration
+    window.setRestorable(false);
+    // SAFETY: AppKit's pasteboard type constant; the delegate takes the drops.
+    window.registerForDraggedTypes(&NSArray::from_slice(&[unsafe { NSPasteboardTypeFileURL }]));
 
     let search = search_field(mtm);
     let delegate = RPWindowDelegate::new(search.clone(), mtm);
@@ -323,7 +379,8 @@ pub fn build(
     let toolbar = NSToolbar::initWithIdentifier(NSToolbar::alloc(mtm), &NSString::from_str("RookparcelMain"));
     toolbar.setDelegate(Some(ProtocolObject::from_ref(&*delegate)));
     toolbar.setAllowsUserCustomization(true);
-    toolbar.setAutosavesConfiguration(true);
+    // kept in the prefs (`Layout`), not in ~/Library/Preferences
+    toolbar.setAutosavesConfiguration(false);
     // µTorrent's toolbar is icons only (Customize Toolbar can add the labels)
     toolbar.setDisplayMode(objc2_app_kit::NSToolbarDisplayMode::IconOnly);
     window.setToolbar(Some(&toolbar));
@@ -366,6 +423,9 @@ pub fn build(
         status.stack.heightAnchor().constraintEqualToConstant(STATUS_HEIGHT),
     ]);
     window.setContentView(Some(&content));
+    // the list has the keys (Return, ⌫, ⌘A) from the start, as µTorrent's
+    let first: &NSView = &list.1;
+    window.setInitialFirstResponder(Some(first));
     window.setAutorecalculatesContentBorderThickness_forEdge(false, NSRectEdge::MinY);
     window.setContentBorderThickness_forEdge(STATUS_HEIGHT, NSRectEdge::MinY);
 
@@ -401,5 +461,78 @@ impl Ui {
 
     pub fn status_visible(&self) -> bool {
         !self.status.stack.isHidden()
+    }
+
+    /// Puts back the kept layout, before the window shows: the frame, the View toggles, the
+    /// toolbar's items and mode, the detail tab. The split sizes follow in [`Ui::apply_sizes`].
+    pub fn apply_layout(&self, l: &Layout) {
+        match &l.frame {
+            Some(f) => self.window.setFrameFromString(&NSString::from_str(f)),
+            None => self.window.center(),
+        }
+        self.toolbar.setVisible(l.toolbar);
+        if let Some(items) = &l.toolbar_items {
+            let allowed: Vec<String> = toolbar_ids(false).iter().map(|s| s.to_string()).collect();
+            while self.toolbar.items().count() > 0 {
+                self.toolbar.removeItemAtIndex(0);
+            }
+            for (i, id) in items.iter().filter(|id| allowed.contains(id)).enumerate() {
+                self.toolbar.insertItemWithItemIdentifier_atIndex(&NSString::from_str(id), i as isize);
+            }
+        }
+        if let Some(m) = l.toolbar_mode {
+            self.toolbar.setDisplayMode(NSToolbarDisplayMode(m));
+        }
+        self.sidebar_item.setCollapsed(!l.sidebar);
+        self.details_item.setCollapsed(!l.details);
+        self.set_status_visible(l.status);
+        self.tabs.selectTabViewItemAtIndex(l.tab.index() as isize);
+    }
+
+    /// The split sizes, once the window is laid out.
+    pub fn apply_sizes(&self, l: &Layout) {
+        self.window.layoutIfNeeded();
+        if l.sidebar {
+            let w = l.sidebar_width.unwrap_or(SIDEBAR_WIDTH);
+            self.split.splitView().setPosition_ofDividerAtIndex(w, 0);
+        }
+        if l.details {
+            let h = l.detail_height.unwrap_or(DETAIL_HEIGHT);
+            let sv = self.content_split.splitView();
+            let at = sv.frame().size.height - sv.dividerThickness() - h;
+            if at > 0.0 {
+                sv.setPosition_ofDividerAtIndex(at, 0);
+            }
+        }
+    }
+
+    /// The layout now, to keep (`Layout::store`).
+    pub fn layout(&self) -> Layout {
+        let mtm = MainThreadMarker::from(&*self.window);
+        let sidebar = !self.sidebar_item.isCollapsed();
+        let details = !self.details_item.isCollapsed();
+        let items: Vec<String> =
+            self.toolbar.items().iter().map(|i| i.itemIdentifier().to_string()).collect();
+        let default: Vec<String> = toolbar_ids(true).iter().map(|s| s.to_string()).collect();
+        let full_screen = self.window.styleMask().contains(NSWindowStyleMask::FullScreen);
+        let tab = self
+            .tabs
+            .selectedTabViewItem()
+            .and_then(|i| usize::try_from(self.tabs.indexOfTabViewItem(&i)).ok())
+            .and_then(|i| Tab::ALL.get(i).copied())
+            .unwrap_or(Tab::General);
+        Layout {
+            toolbar: self.toolbar.isVisible(),
+            sidebar,
+            details,
+            status: self.status_visible(),
+            sidebar_width: sidebar.then(|| self.sidebar_item.viewController(mtm).view().frame().size.width),
+            detail_height: details.then(|| self.details_item.viewController(mtm).view().frame().size.height),
+            tab,
+            // a full-screen frame is not the window's own
+            frame: (!full_screen).then(|| self.window.stringWithSavedFrame().to_string()),
+            toolbar_items: (items != default).then_some(items),
+            toolbar_mode: Some(self.toolbar.displayMode().0),
+        }
     }
 }

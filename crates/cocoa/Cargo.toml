@@ -124,6 +124,7 @@ objc2-app-kit = { workspace = true, features = [
     "NSVisualEffectView",
     "NSWindow",
     "NSWindowController",
+    "NSWindowRestoration",
     "NSWorkspace",
     "alloc",
     "bitflags",

@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_200404_1793991844
+Last updated: 2026-11-06_201236_1793992356
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -19,9 +19,9 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- **Native macOS GUI (D52, D61, [MACOS_GUI.md](docs/MACOS_GUI.md)):** all 12 slices merged (1.2.6-1.2.18) and validated on the unlocked VM with real input (slice L): every window and dialog; 100,000 demo torrents listed in 0.48 s, sorted in 47-66 ms, 194 MB. 1.2.18 ships it instead of the GTK bundle; 1.2.19 closed slice L's follow-ups (BACKLOG "macOS").
+- **Native macOS GUI (D52, D61, [MACOS_GUI.md](docs/MACOS_GUI.md)):** all 12 slices merged (1.2.6-1.2.18) and validated on the unlocked VM with real input (slice L): every window and dialog; 100,000 demo torrents listed in 0.48 s, sorted in 47-66 ms, 194 MB. **1.2.19, the first release with it, is published (2026-11-06)**; `update.txt` says `stable=1.2.19`. Open (BACKLOG "macOS"): arm64 and Retina by hand (the owner has only the Intel VM).
 
-- **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services; repository, Pages, wiki and screenshots renamed. **1.2.5, the first release as Rookparcel, is published (2026-11-06)**; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak.
+- **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services; repository, Pages, wiki and screenshots renamed. 1.2.5 was the first release as Rookparcel. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak.
 
 - **Artwork (2026-11-05):** the Postal Rook won ([concepts](docs/art/rookparcel-candidates-2026-11-05/README.md), [small marks](docs/art/postal-rook-small-2026-11-05/README.md)); the [96 UI icon studies](docs/art/rookparcel-ui-2026-11-05/README.md) await selection and 16/20/24 px redraws.
 
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**Release 1.2.19, the first native Mac app (2026-11-06_200404_1793991844):** `v1.2.19` is tagged and its draft built ([notes](docs/releases/1.2.19.md)); the dmg ran on GitHub's arm64 runner and the Intel VM. The owner has no real Mac, so the notes say "an Intel Mac virtual machine". Notifications show on the VM once allowed. Next: publish (`gh release edit v1.2.19 --draft=false`). After publishing: push the local branch `site-1.2.19` (native-app site text, news entry; set its date) and `docs/wiki` to the wiki.
+**Release 1.2.19 published (2026-11-06_201236_1793992356):** the first native Mac app ([notes](docs/releases/1.2.19.md)), with the site's Mac text, its news entry and the wiki. Next on macOS: drop the unused legacy notification centre (BACKLOG "macOS" (A)).
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_201236_1793992356: Release 1.2.19 published, the first native Mac app
+
+- The owner approved; the draft is published and GitHub's Latest. The site's native-app text and the news entry (`site-1.2.19`) are on `main`, and the wiki has the changed `docs/wiki` pages (its extra pointer pages and Windows search page stay). Live site checked: `update.txt` says `stable=1.2.19`, the download page lists `Rookparcel-1.2.19-macos.dmg` under "Apple silicon and Intel, macOS 11", and the home page's latest news is 1.2.19.
+
 ## 2026-11-06_200404_1793991844: 1.2.19's Mac notifications work once allowed
 
 - The VM never showed them because Rookparcel's notifications were switched off in System Settings (its `com.apple.ncprefs` flags lack the "allowed" bit every allowed app has), so `UNUserNotificationCenter` answered "not allowed" without asking. Once the owner allowed them, the 1.2.19 release app showed "Download Complete" as a banner with Rookparcel in front and with Finder in front (usernoted: "Presenting ... as banner"). No code change; the notes now say to turn them on there if none appear.

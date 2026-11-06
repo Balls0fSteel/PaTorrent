@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_085947_1793951987: Release 1.2.5 published, the first as Rookparcel
+
+- The Release workflow built all 14 files; the owner published the draft, and it is GitHub's Latest. The news entry is on `main`. Live site checked: `update.txt` says `stable=1.2.5`, the download page lists only `rookparcel-1.2.5` / `Rookparcel-1.2.5` files, and "PaTorrent" remains only in the news text about the rename.
+
 ## 2026-11-06_084738_1793951258: Wiki screenshots retaken; v1.2.5 tagged
 
 - `docs/wiki/images` (18 changed, same sizes) and `docs/screenshots/search-win-dropdown*.png` retaken from the 1.2.4 demo on the hidden desktop: Rookparcel title bars and icon, `D:\Downloads\rookparcel-mock`; pushed to the wiki. The other search-guide shots never showed the name and need a real Jackett, so they stay.

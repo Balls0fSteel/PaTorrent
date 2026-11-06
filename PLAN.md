@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_084738_1793951258
+Last updated: 2026-11-06_085947_1793951987
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -20,7 +20,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **Small Postal Rook studies (2026-11-05_225249_1793915569):** [11 new candidates](docs/art/postal-rook-small-2026-11-05/README.md), with ICOs and actual 16 px comparisons. Review shortlist: 10 Night Courier, 11 Closed Envelope, 09 Compact Courier. Candidate exploration only; D60 and production assets unchanged.
 
-- **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. The repository is renamed (Pages at `/Rookparcel/`), `main` and the wiki are pushed (2026-11-05); the icon is D60. The site's and the wiki's screenshots show 1.2.4; old release titles read "Rookparcel X (released as PaTorrent)" (2026-11-06). **1.2.5, the first release as Rookparcel, is tagged (2026-11-06_084738_1793951258):** the owner tries the draft and publishes it, then pushes the local branch `news-1.2.5` (the news entry; change its date if needed) to `main`. Publishing replaces the PaTorrent 1.2.0 files on the download page. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak (the notes' Flatpak copy steps are untried).
+- **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. The repository is renamed (Pages at `/Rookparcel/`), `main` and the wiki are pushed (2026-11-05); the icon is D60. The site's and the wiki's screenshots show 1.2.4; old release titles read "Rookparcel X (released as PaTorrent)" (2026-11-06). **1.2.5, the first release as Rookparcel, is published (2026-11-06_085947_1793951987)** with its news entry; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak (the notes' Flatpak copy steps are untried).
 
 - **UI icon studies (2026-11-05_221629_1793913389):** [96 studies across four sheets](docs/art/rookparcel-ui-2026-11-05/README.md), with prompts and review. Next: select candidates, correct state semantics, then redraw and check native 16/20/24 px exports before integration.
 

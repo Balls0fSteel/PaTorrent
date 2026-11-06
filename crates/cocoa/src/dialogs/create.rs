@@ -165,7 +165,8 @@ fn show(r: Remembered, remote: bool, mtm: MainThreadMarker) {
     let root = super::column(&views, mtm);
     root.setSpacing(14.0);
 
-    let window = super::window(&ui::text(tr!(CreateTitle)), &root, None, true, mtm);
+    // its size is its controls' (the text boxes scroll)
+    let window = super::window(&ui::text(tr!(CreateTitle)), &root, None, false, mtm);
     window.setInitialFirstResponder(Some(&source));
     let d = Rc::new(Dialog {
         id,

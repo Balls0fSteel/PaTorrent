@@ -17,8 +17,9 @@ use objc2::MainThreadMarker;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
 use objc2_app_kit::{
-    NSApplication, NSBorderType, NSButton, NSComboBox, NSEvent, NSImage, NSLayoutAttribute, NSOutlineView,
-    NSStackViewDistribution, NSTableCellView, NSTableHeaderView, NSTextField, NSWindow,
+    NSApplication, NSBorderType, NSButton, NSComboBox, NSEvent, NSImage, NSLayoutAttribute,
+    NSLayoutConstraintOrientation, NSOutlineView, NSStackViewDistribution, NSTableCellView,
+    NSTableHeaderView, NSTextField, NSView, NSWindow,
 };
 use objc2_foundation::{NSFileManager, NSFileSystemFreeSize, NSNumber, NSSize};
 use rookparcel_frontend::add::{self as fadd, AddChoice, Check, FileTree};
@@ -206,15 +207,21 @@ fn show(req: AddRequest, mtm: MainThreadMarker) {
     layout::stretch(&label);
     let label_row = layout::hstack(&[&ui::label_tr(tr!(AddLabel), mtm), &label], mtm);
     let options = super::column(&[&skip, &start, &top, &label_row], mtm);
+    // the column is as tall as the contents beside it: the room left goes under its controls
+    let rest = NSView::new(mtm);
+    ui::auto(&rest);
+    rest.setContentHuggingPriority_forOrientation(1.0, NSLayoutConstraintOrientation::Vertical);
     let left = super::column(
         &[
             &super::section(tr!(AddSaveIn), &save_row, mtm),
             &super::section(tr!(AddName), &name, mtm),
             &super::section(tr!(AddOptions), &options, mtm),
+            &rest,
         ],
         mtm,
     );
     left.setSpacing(16.0);
+    left.setDistribution(NSStackViewDistribution::Fill);
     layout::width(&left, 260.0);
 
     // Torrent Contents: the torrent's facts, the files, Select All / None

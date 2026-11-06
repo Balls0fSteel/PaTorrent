@@ -1,6 +1,6 @@
 # Searching for torrents
 
-This page explains how to find new torrents from inside Rookparcel: the difference between filtering your own list and searching, how to add search sources (the search helper, or your own Prowlarr or Jackett), and how to add what a search finds. It covers the Windows window, the GTK window (Linux, BSD, macOS) and the Web UI.
+This page explains how to find new torrents from inside Rookparcel: the difference between filtering your own list and searching, how to add search sources (the search helper, or your own Prowlarr or Jackett), and how to add what a search finds. It covers the Windows window, the GTK window (Linux, BSD) and the Web UI.
 
 For a step-by-step walk through the Windows version with screenshots, see [Searching for torrents on Windows](Searching-for-torrents-on-Windows).
 
@@ -107,7 +107,7 @@ The search helper is [Jackett](https://github.com/Jackett/Jackett), a separate f
 |---|---|
 | Windows window (x64 and ARM64) | Yes |
 | GTK window on Linux (x86-64 and ARM64) | Yes |
-| GTK window on macOS (Intel and Apple silicon) | Yes |
+| macOS app (Intel and Apple silicon) | Yes |
 | Flatpak | No |
 | FreeBSD | No (Jackett has no build for it) |
 | Builds made by a package manager with the update check left out | No |
@@ -151,7 +151,7 @@ The `search-helper` folder in your profile's folder:
 |---|---|
 | Windows | `%APPDATA%\Rookparcel\search-helper`; in portable mode, the folder with `rookparcel.exe`; with a profile, that profile's folder |
 | Linux (GTK) | `~/.local/share/rookparcel/gtk/search-helper` (with a profile, under `profiles/<name>/`) |
-| macOS (GTK) | `~/Library/Application Support/Rookparcel/gtk/search-helper` (with a profile, under `profiles/<name>/`) |
+| macOS | `~/Library/Application Support/Rookparcel/mac/search-helper` (with a profile, under `profiles/<name>/`) |
 
 Each profile has its own helper. See [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files) and [Profiles](Profiles).
 

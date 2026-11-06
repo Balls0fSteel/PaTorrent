@@ -2,15 +2,16 @@
 
 Rookparcel is a lean BitTorrent client in the spirit of µTorrent 2.2.1: small, fast and native. This wiki explains how to use it: installing it, adding and managing torrents, the settings, the Web UI and the headless daemon.
 
-Rookparcel comes as three programs:
+Rookparcel comes as four programs:
 
 | Program | Where | What it is |
 |---|---|---|
 | `rookparcel.exe` | Windows 10 and 11 | the Windows window (GUI) |
-| `rookparcel-gtk` | Linux, BSD, macOS | the GTK 4 window (GUI): the same main window and dialogs, with a few differences noted on each page |
+| `rookparcel-gtk` | Linux, BSD | the GTK 4 window (GUI): the same main window and dialogs, with a few differences noted on each page |
+| `Rookparcel.app` | macOS 11 or newer, Apple silicon and Intel | the native macOS window (GUI): the same main window and dialogs, with the Mac's menu bar and <kbd>⌘</kbd> shortcuts |
 | `rookparcel-nox` | all of them | runs without a window, controlled from a browser through its Web UI |
 
-Most pages describe the Windows window and then say what differs in the GTK window and the Web UI.
+Most pages describe the Windows window and then say what differs in the GTK window and the Web UI. The macOS app works like the GTK window; where it differs, the page has a macOS section: [Installing Rookparcel](Installing-Rookparcel#macos), [Keyboard shortcuts](Keyboard-shortcuts#macos), [Tray, notifications and startup](Tray-notifications-and-startup#macos), [Preferences reference](Preferences-reference#differences-on-macos) and [Auto Shutdown](Auto-shutdown). *The native macOS app is not in a published release yet; earlier releases have the GTK window for Apple silicon on macOS.*
 
 **Version:** the wiki follows the current code (1.1.63). The newest published release is [1.1.40](https://github.com/Balls0fSteel/Rookparcel/releases/latest); features added after it are marked on their pages.
 

@@ -56,7 +56,7 @@ Every torrent imported or left out gets a line in the [Logger tab](Torrent-detai
 
 When Rookparcel finds no torrents at all, it says "No qBittorrent torrents were found in ..." with the folder it read.
 
-## In the GTK version (Linux, BSD, macOS)
+## In the GTK version (Linux, BSD)
 
 The same two items in the **File** menu, with the same steps. µTorrent has no usual folder outside Windows, so Rookparcel asks for the folder with `resume.dat`, for example one copied from a Windows computer.
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Rookparcel: a lean BitTorrent client in the spirit of µTorrent 2.2.1</title>
-<meta name="description" content="Rookparcel is a lean BitTorrent client in the spirit of µTorrent 2.2.1: a native Win32 GUI, a GTK 4 GUI for Linux, BSD and macOS, and a headless daemon with its own Web UI.">
+<meta name="description" content="Rookparcel is a lean BitTorrent client in the spirit of µTorrent 2.2.1: a native Win32 GUI, a native macOS GUI, a GTK 4 GUI for Linux and BSD, and a headless daemon with its own Web UI.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#14233d">
 <link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
@@ -39,7 +39,7 @@
       <div>
         <h1 id="title">Rookparcel</h1>
         <p class="lede">A lean BitTorrent client in the spirit of µTorrent 2.2.1: small native programs, low RAM and CPU use, and an interface that stays responsive with tens of thousands of torrents.</p>
-        <p>A native Win32 GUI on Windows, a GTK 4 GUI on Linux, BSD and macOS, and a headless daemon, <code>rookparcel-nox</code>, with its own Web UI. The engine is our own Rust port of libtorrent-rasterbar 2.0.11.</p>
+        <p>A native Win32 GUI on Windows, a native AppKit GUI on macOS, a GTK 4 GUI on Linux and BSD, and a headless daemon, <code>rookparcel-nox</code>, with its own Web UI. The engine is our own Rust port of libtorrent-rasterbar 2.0.11.</p>
         <!-- build:hero-download -->
         <div class="cta"><p class="cta-buttons"><a class="btn btn-primary" href="https://github.com/Balls0fSteel/Rookparcel/releases">Download from GitHub</a> <a class="btn btn-ghost" href="download.html#which">Which file do I need?</a></p></div>
         <!-- /build:hero-download -->
@@ -77,7 +77,7 @@
           </figure>
           <div>
             <h3>On every desktop</h3>
-            <p>On Linux, BSD and macOS the same main window and dialogs run on GTK 4, from the same frontend code as the Windows window.</p>
+            <p>On macOS the same main window and dialogs are a native Mac app, and on Linux and BSD they run on GTK 4, from the same frontend code as the Windows window.</p>
             <p>Or leave the daemon running headless on a server and use it from a browser, or from either desktop GUI in remote mode.</p>
           </div>
         </div>
@@ -162,7 +162,7 @@
         </div>
         <div class="platform-card">
           <h3>macOS</h3>
-          <p>The GTK 4 GUI for Apple silicon (macOS 15 or newer); the daemon for Apple silicon and Intel.</p>
+          <p>A native GUI for Apple silicon and Intel (macOS 11 Big Sur or newer), and the daemon.</p>
           <p><a href="download.html#macos">macOS downloads</a></p>
         </div>
         <div class="platform-card">

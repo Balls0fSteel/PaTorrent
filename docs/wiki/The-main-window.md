@@ -155,7 +155,7 @@ With **Show current speed in the title bar** on (Preferences > UI Settings), the
 
 Rookparcel puts an icon in the notification area. Hovering it shows the version and the speeds. A click shows or hides the window; a right-click opens a menu with **Hide Rookparcel** or **Show Rookparcel**, **Add Torrent...**, **Add Torrent from URL...**, **Start All Torrents**, **Stop All Torrents** and **Exit**. By default the close button hides the window to the tray and the torrents keep running; **Exit** quits. See [Tray, notifications and startup](Tray-notifications-and-startup).
 
-## In the GTK version (Linux, BSD, macOS)
+## In the GTK version (Linux, BSD)
 
 - The same layout: toolbar, category list, torrent list, detail tabs and status bar. The toolbar has no **Preferences** button; use **Options > Preferences** or <kbd>Ctrl</kbd>+<kbd>P</kbd>.
 - The **Options** menu has **Preferences**, **Setup Guide**, **RSS Downloader...** and **Auto Shutdown**. There are no **Show** items and no tray items in it.

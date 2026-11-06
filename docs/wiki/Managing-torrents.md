@@ -108,7 +108,7 @@ With **Append the torrent's label** on next to **Move completed downloads to:** 
 
 **Properties** (<kbd>Enter</kbd>, or double-click a torrent that is not finished) opens the Torrent Properties window: trackers, speed limits, upload slots, the seeding goal, and DHT and Peer Exchange for this torrent. See [Torrent details and files](Torrent-details-and-files#torrent-properties).
 
-## In the GTK version (Linux, BSD, macOS)
+## In the GTK version (Linux, BSD)
 
 - The same right-click menu, in the same order.
 - Shortcuts: <kbd>Delete</kbd> removes, <kbd>Shift</kbd>+<kbd>Delete</kbd> removes and deletes the files, <kbd>Ctrl</kbd>+<kbd>A</kbd> selects all. Start, Pause and Stop have no shortcut.

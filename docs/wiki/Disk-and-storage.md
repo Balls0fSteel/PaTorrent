@@ -104,7 +104,7 @@ Under **Disk Queue and Files**:
 
 ## In the GTK window and the Web UI
 
-- **GTK window** (Linux, BSD, macOS): the same Directories, Disk Cache and Disk I/O pages. Drive types are detected on Linux, macOS and FreeBSD too, each with the system's own methods.
+- **GTK window** (Linux, BSD): the same Directories, Disk Cache and Disk I/O pages. Drive types are detected on Linux, macOS and FreeBSD too, each with the system's own methods.
 - **Web UI**: the same pages under **Preferences**, with **Disk Cache** and **Disk I/O** under **Advanced**. Folders there are folders on the computer running Rookparcel, not on the browser's.
 - **rookparcel-nox**: `--save DIR` sets the download folder and `--move-on-complete DIR` moves finished torrents; the other settings are in the Web UI's Preferences.
 

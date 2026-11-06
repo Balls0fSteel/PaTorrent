@@ -1,5 +1,5 @@
-//! `.torrent` files and `magnet:` links through LaunchServices, as the GTK bundle sets them
-//! (`crates/gtk/src/macos.rs`): LaunchServices names programs by bundle id, so only
+//! `.torrent` files and `magnet:` links through LaunchServices, as the retired GTK bundle set
+//! them (D23, before D61): LaunchServices names programs by bundle id, so only
 //! Rookparcel.app can be registered ([`bundle_id`]), and only from its default profile
 //! (LaunchServices opens the bundle, never a profile). The `.torrent` type is the UTI
 //! LaunchServices has for the extension (`org.bittorrent.torrent`, which the bundle's

@@ -196,7 +196,7 @@ Private torrents never use the DHT or Peer Exchange.
 
 Select several torrents and open Properties to change them together. A field whose value differs between them loads empty, and a check box shows a third, mixed state. A field you leave as it loaded is left alone on every torrent; only what you change is applied to all.
 
-## In the GTK version (Linux, BSD, macOS)
+## In the GTK version (Linux, BSD)
 
 - The same seven tabs with the same columns, the same Files tab menu and filter box, and the same Properties window.
 - **Open** and **Open Containing Folder** use your desktop's default programs and file manager.

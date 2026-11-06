@@ -9,9 +9,6 @@
 //!
 //! Relative or empty XDG variables are ignored, as the spec says.
 //!
-//! On macOS both are `~/Library/Application Support/Rookparcel/gtk` (their file names differ),
-//! where Apple puts an application's own files; the XDG variables are not read there.
-//!
 //! A named profile (D42, `--profile work`) puts `profiles/work` before `gtk` in both:
 //! `~/.config/rookparcel/profiles/work/gtk`, `~/.local/share/rookparcel/profiles/work/gtk`.
 //!
@@ -43,9 +40,6 @@ pub fn config_dir_of(name: Option<&str>) -> PathBuf {
     if let Some(root) = portable() {
         return profile::within(root, name);
     }
-    if cfg!(target_os = "macos") {
-        return macos_dir(&|k| std::env::var_os(k), name);
-    }
     dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"], name)
 }
 
@@ -53,9 +47,6 @@ pub fn config_dir_of(name: Option<&str>) -> PathBuf {
 pub fn data_dir_of(name: Option<&str>) -> PathBuf {
     if let Some(root) = portable() {
         return profile::within(root, name);
-    }
-    if cfg!(target_os = "macos") {
-        return macos_dir(&|k| std::env::var_os(k), name);
     }
     dir(&|k| std::env::var_os(k), "XDG_DATA_HOME", &[".local", "share"], name)
 }
@@ -86,7 +77,6 @@ pub fn settings_dir() -> PathBuf {
 /// startup" (`crate::integration`): the portal cannot be asked afterwards, so the answer is kept
 /// here. A file of its own beside `rookparcel.ini`, which the main window keeps in memory and
 /// writes back whole, so it would lose a value written behind its back.
-#[cfg(not(target_os = "macos"))]
 pub fn background_file() -> PathBuf {
     config_dir().join("background.ini")
 }
@@ -106,13 +96,6 @@ fn dir(env: &dyn Fn(&str) -> Option<OsString>, var: &str, fallback: &[&str], nam
         }
     };
     profile::within(&base.join(APP[0]), name).join(APP[1])
-}
-
-/// `$HOME/Library/Application Support/Rookparcel[/profiles/<name>]/gtk`.
-fn macos_dir(env: &dyn Fn(&str) -> Option<OsString>, name: Option<&str>) -> PathBuf {
-    let home = env("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    let root = ["Library", "Application Support", "Rookparcel"].iter().fold(home, |p, c| p.join(c));
-    profile::within(&root, name).join(APP[1])
 }
 
 #[cfg(test)]
@@ -136,8 +119,6 @@ mod tests {
             dir(&e, "XDG_CONFIG_HOME", &[".config"], None),
             PathBuf::from("/home/u/.config/rookparcel/gtk")
         );
-        let e = env(&[("HOME", "/Users/u"), ("XDG_CONFIG_HOME", "/cfg")]);
-        assert_eq!(macos_dir(&e, None), PathBuf::from("/Users/u/Library/Application Support/Rookparcel/gtk"));
     }
 
     #[test]
@@ -150,10 +131,6 @@ mod tests {
         assert_eq!(
             dir(&e, "XDG_DATA_HOME", &[".local", "share"], Some("work")),
             PathBuf::from("/home/u/.local/share/rookparcel/profiles/work/gtk")
-        );
-        assert_eq!(
-            macos_dir(&e, Some("vpn")),
-            PathBuf::from("/home/u/Library/Application Support/Rookparcel/profiles/vpn/gtk")
         );
     }
 }

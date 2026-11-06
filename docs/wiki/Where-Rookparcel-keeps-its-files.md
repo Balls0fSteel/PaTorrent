@@ -37,7 +37,11 @@ The GTK version follows the XDG folders:
 
 ## macOS
 
-Both the settings and the torrent list are in `~/Library/Application Support/Rookparcel/gtk`; `rookparcel-nox` uses `~/Library/Application Support/Rookparcel/nox`.
+Both the settings and the torrent list are in `~/Library/Application Support/Rookparcel/mac`, laid out like the Windows folder above; `rookparcel-nox` uses `~/Library/Application Support/Rookparcel/nox`. A [profile](Profiles) `work` is in `~/Library/Application Support/Rookparcel/profiles/work/mac`.
+
+The GTK version of `Rookparcel.app` in earlier releases used a `gtk` folder in the same places. The first start of the native app renames each `gtk` folder to `mac` (the default profile's and every profile's) and corrects the paths into it in its settings, so everything carries over. It does this once: only where there is no `mac` folder yet, and not while the old app is using the folder. Portable folders are left as they are.
+
+*The native macOS app and its `mac` folder are not in a published release yet; earlier releases use `gtk`.*
 
 ## Portable mode
 
@@ -78,7 +82,7 @@ To run two Rookparcels side by side on purpose, use [profiles](Profiles).
 
 ## Backing up
 
-1. Exit Rookparcel (**File > Exit**), so everything is saved.
+1. Exit Rookparcel (**File > Exit**; on macOS **Rookparcel > Quit Rookparcel**), so everything is saved.
 2. Copy the whole folder: `%APPDATA%\Rookparcel` on Windows, both `~/.config/rookparcel` and `~/.local/share/rookparcel` on Linux, `~/Library/Application Support/Rookparcel` on macOS, or the portable folder.
 
 The backup holds the settings, the torrent list with each torrent's progress, the RSS feeds and every profile. It does not hold the downloaded files.

@@ -1,9 +1,7 @@
 //! A test aid: with the environment variable `ROOKPARCEL_SNAPSHOTS` naming a folder, every two
 //! seconds each window of this process is drawn into `window-<n>.png` there, and `windows.txt`
 //! lists each window's title and the text of every label in it, dialogs included. For checks
-//! on machines whose screen cannot be captured (a macOS VM without Metal, where `screencapture`
-//! shows only the menu bar) or read through accessibility (GTK on macOS exposes no label text).
-//! GTK draws the windows itself, so nothing is needed from the desktop.
+//! on machines whose screen cannot be captured or read through accessibility. GTK draws the windows itself, so nothing is needed from the desktop.
 
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};

@@ -43,36 +43,14 @@
 //! `applications/` in a Flatpak too. Its associations and autostart entry name it, so one
 //! profile at a time opens the types and each starts at login apart. In a Flatpak only the
 //! default profile can start at login (the portal keeps one autostart per application).
-//!
-//! macOS (`crate::macos`, PLAN.md D23) keeps the same boxes in its own places:
-//! - "Start Rookparcel on system startup" is a LaunchAgent, `~/Library/LaunchAgents/<app id>.plist`
-//!   with `RunAtLoad`, whose `ProgramArguments` are the bundle's executable (Rookparcel.app's
-//!   launcher, which sets up GTK's paths; this executable outside a bundle), plus `--minimized`
-//!   for "Start minimized". It is checked when the plist starts this very program, as above.
-//!   macOS 13 and later list it in System Settings > General > Login Items ("Allow in the
-//!   Background") and announce it in a notification when it is written.
-//! - The defaults for `.torrent` files (the UTI LaunchServices has for the extension,
-//!   `org.bittorrent.torrent`, which the bundle's `Info.plist` imports) and `magnet:` links are
-//!   LaunchServices', set and read by bundle id. Only Rookparcel.app has one: run from a bare
-//!   executable, the two association boxes and "Check association on startup" are greyed
-//!   ([`associations_settable`]). macOS has no way to give a type back to "no default", so
-//!   turning one off is refused with a pointer to Finder's Get Info > Open with.
 
 /// Whether this desktop has the integration (every one the GUI runs on now; see above).
 pub const AVAILABLE: bool = true;
 
 /// Whether the `.torrent` and `magnet:` associations can be changed from here: not in a
-/// Flatpak, and on macOS only from Rookparcel.app (LaunchServices names programs by bundle id)
-/// in its default profile (LaunchServices opens the bundle, never a profile).
+/// Flatpak.
 pub fn associations_settable() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        crate::macos::bundle_id().is_some() && rookparcel_frontend::profile::current().is_default()
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        !packaged()
-    }
+    !packaged()
 }
 
 /// Whether the integration is the package's, not ours: running in a Flatpak (see above).
@@ -82,7 +60,6 @@ pub fn packaged() -> bool {
 
 pub use imp::{adopt_patorrent, profile_entry, read, show_profile_entry, write};
 
-#[cfg(not(target_os = "macos"))]
 mod imp {
     use std::path::{Path, PathBuf};
 
@@ -405,145 +382,5 @@ mod imp {
                 assert!(manifest.lines().any(|l| l == format!("command: {COMMAND}")));
             }
         }
-    }
-}
-
-#[cfg(target_os = "macos")]
-mod imp {
-    use std::path::PathBuf;
-
-    use gtk::glib;
-    use rookparcel_frontend::integration::{Integration, MINIMIZED};
-
-    use crate::app::APP_ID;
-    use crate::macos;
-
-    /// What the LaunchAgent starts: the bundle's own executable inside Rookparcel.app (starting
-    /// `rookparcel-gtk` there directly would skip the launcher's paths), else this executable;
-    /// in a named profile with `--profile <name>` (D42).
-    pub fn command() -> Vec<String> {
-        let Some(program) = macos::bundle_executable().or_else(|| std::env::current_exe().ok()) else {
-            return Vec::new();
-        };
-        let mut c = vec![program.to_string_lossy().into_owned()];
-        c.extend(rookparcel_frontend::profile::current().args());
-        c
-    }
-
-    /// The LaunchAgent's label: the application id, `<APP_ID>.<name>` for a named profile, so
-    /// each profile starts at login apart from the others.
-    fn agent_label() -> String {
-        match &rookparcel_frontend::profile::current().name {
-            Some(n) => format!("{APP_ID}.{n}"),
-            None => APP_ID.to_owned(),
-        }
-    }
-
-    fn agent_path() -> PathBuf {
-        glib::home_dir().join("Library").join("LaunchAgents").join(format!("{}.plist", agent_label()))
-    }
-
-    /// PaTorrent's LaunchAgent for this profile (D59) goes, and Rookparcel starts at login in
-    /// its place. Its associations named PaTorrent.app's bundle id, which "Check association on
-    /// startup" offers to replace.
-    pub fn adopt_patorrent() -> Result<(), String> {
-        use rookparcel_frontend::integration::OLD_APP_ID;
-        let label = match &rookparcel_frontend::profile::current().name {
-            Some(n) => format!("{OLD_APP_ID}.{n}"),
-            None => OLD_APP_ID.to_owned(),
-        };
-        let path = glib::home_dir().join("Library").join("LaunchAgents").join(format!("{label}.plist"));
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            return Ok(());
-        };
-        let minimized =
-            macos::launch_agent_arguments(&text).is_some_and(|a| a.iter().any(|x| x == MINIMIZED));
-        std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let set = read();
-        if set.autostart {
-            return Ok(());
-        }
-        write(&set, &Integration { autostart: true, minimized, ..set }).map(drop)
-    }
-
-    /// Nothing on macOS: LaunchServices names the bundle, never a profile's entry.
-    pub fn profile_entry() -> Result<bool, String> {
-        Ok(false)
-    }
-
-    /// Not on macOS (its menu item is greyed): the Dock keeps the bundle.
-    pub fn show_profile_entry() -> Result<(), String> {
-        Err("macOS starts profiles from the command line or a script".into())
-    }
-
-    /// The LaunchAgent's arguments after the program and profile, when it starts this program.
-    fn agent_args(command: &[String]) -> Option<Vec<String>> {
-        let text = std::fs::read_to_string(agent_path()).ok()?;
-        let args = macos::launch_agent_arguments(&text)?;
-        (!command.is_empty() && args.starts_with(command)).then(|| args[command.len()..].to_vec())
-    }
-
-    /// LaunchServices may hand bundle ids back lowercased.
-    fn is(handler: Option<String>, id: &str) -> bool {
-        handler.is_some_and(|h| h.eq_ignore_ascii_case(id))
-    }
-
-    /// What is set for this program now (the associations only for Rookparcel.app).
-    pub fn read() -> Integration {
-        let args = agent_args(&command());
-        let id = macos::bundle_id();
-        let id = id.as_deref();
-        Integration {
-            torrent: id.is_some_and(|id| is(macos::default_for_type(&macos::torrent_uti()), id)),
-            magnet: id.is_some_and(|id| is(macos::default_for_scheme(macos::MAGNET_SCHEME), id)),
-            minimized: args.as_ref().is_some_and(|a| a.iter().any(|x| x == MINIMIZED)),
-            autostart: args.is_some(),
-        }
-    }
-
-    /// Changes what differs between `old` (as [`read`] gave it) and `want`; what is set afterwards.
-    pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
-        let (old, want) = (old.normalized(), want.normalized());
-        if (want.torrent && !old.torrent) || (want.magnet && !old.magnet) {
-            // the boxes are greyed outside the bundle; "Check association" does not ask there
-            let id = macos::bundle_id().ok_or("only Rookparcel.app can be the default program")?;
-            if want.torrent && !old.torrent {
-                macos::set_default_for_type(&macos::torrent_uti(), &id)?;
-            }
-            if want.magnet && !old.magnet {
-                macos::set_default_for_scheme(macos::MAGNET_SCHEME, &id)?;
-            }
-        }
-        if (want.autostart, want.minimized) != (old.autostart, old.minimized) {
-            let path = agent_path();
-            if want.autostart {
-                let mut program = command();
-                if program.is_empty() {
-                    return Err("the path of this program is not known".into());
-                }
-                if want.minimized {
-                    program.push(MINIMIZED.to_owned());
-                }
-                let fail = |e: std::io::Error| format!("{}: {e}", path.display());
-                if let Some(dir) = path.parent() {
-                    std::fs::create_dir_all(dir).map_err(fail)?;
-                }
-                std::fs::write(&path, macos::launch_agent(&agent_label(), &program)).map_err(fail)?;
-            } else {
-                match std::fs::remove_file(&path) {
-                    Ok(()) => {}
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                    Err(e) => return Err(format!("{}: {e}", path.display())),
-                }
-            }
-        }
-        // LaunchServices keeps a default until another program takes it; there is no reset
-        if (!want.torrent && old.torrent) || (!want.magnet && old.magnet) {
-            return Err("macOS keeps Rookparcel as the default program until another one is chosen \
-                 (Finder's Get Info > Open with > Change All for .torrent files, the other \
-                 program's own setting for magnet: links)"
-                .into());
-        }
-        Ok(read())
     }
 }

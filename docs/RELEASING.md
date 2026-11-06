@@ -13,7 +13,7 @@ How a version goes out (PLAN.md D22, Road to 1.0 items 6, 7 and 14). The files a
 | `Rookparcel-<version>-x86_64.AppImage`, `-aarch64.AppImage` | the GTK GUI with GTK 4 and every library it needs but glibc (linuxdeploy and its GTK plugin) | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 | `rookparcel-nox-<version>-x86_64.AppImage`, `-aarch64.AppImage` | `rookparcel-nox` with OpenSSL; a terminal program, kept out of the menus | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 | `Rookparcel-<version>-x86_64.flatpak`, `-aarch64.flatpak` | the GTK GUI as a single-file Flatpak bundle on the GNOME 51 runtime (see [Flatpak](#flatpak)) | `ubuntu-24.04`, `ubuntu-24.04-arm`, in Flathub's builder container |
-| `Rookparcel-<version>-arm64.dmg` | `Rookparcel.app`: the GTK GUI with GTK 4 and every library it needs from Homebrew, ad-hoc signed; the two texts | `macos-15` (Apple silicon) |
+| `Rookparcel-<version>-macos.dmg` | `Rookparcel.app`: the native AppKit GUI (`rookparcel-mac`, D61) as one universal binary for Apple silicon and Intel, macOS 11 or later, ad-hoc signed; the two texts | `macos-15` (x86_64 cross-built and joined with `lipo`) |
 | `rookparcel-nox-<version>-macos-arm64.tar.gz`, `-macos-x86_64.tar.gz` | `rookparcel-nox` (system libraries only: TLS is Secure Transport, D9), the two texts | `macos-15` (x86_64 cross-built) |
 | `SHA256SUMS` | the files' SHA-256 | |
 
@@ -23,6 +23,8 @@ libraries but glibc, so they need glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, 
 an AppImage started on a desktop without FUSE 2 needs `--appimage-extract-and-run`. The AppImage
 icon is provisional (the family `assets/patina-icons/app-icon.txt` names) until the owner picks
 one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
+Earlier releases had `Rookparcel-<version>-arm64.dmg` (`PaTorrent-...` before 1.2.5) instead:
+the GTK GUI bundled with Homebrew's GTK 4, Apple silicon only, macOS 15 or later (D23).
 
 ### Windows installer
 
@@ -78,42 +80,51 @@ elevates through UAC and starts from a clean registry):
 
 ### macOS
 
-- **The GUI is Apple silicon (arm64) only.** The runner's Homebrew has no Intel GTK to bundle;
-  an Intel `.app` needs an x86_64 Homebrew (or a universal GTK build) first. Intel Macs get
-  nox.
-- **macOS version:** the `.app` needs what the Homebrew bottles it bundles were built for, which
-  is the runner's macOS (15, Sequoia, for bottles built on `macos-15`); the job writes the exact
-  version (the highest `minos` of every Mach-O inside) into `LSMinimumSystemVersion` and the
-  run's summary. nox needs macOS 11 on Apple silicon and 10.14 on Intel
-  (`SecTrustEvaluateWithError`, D9).
+- **One universal app** (D61): the job builds `rookparcel-mac` for `aarch64-apple-darwin` and
+  `x86_64-apple-darwin` with `MACOSX_DEPLOYMENT_TARGET=11.0`, and `macos_bundle.py native` joins
+  the two with `lipo`. The runner is Apple silicon: it starts the arm64 half; the x86_64 half
+  runs there only through Rosetta (`arch -x86_64 ... --version`, a warning when it cannot). Intel
+  Macs get nox tarballs too.
+- **macOS version:** 11 Big Sur or later for the app; the job writes the highest `minos` of the
+  binary's slices into `LSMinimumSystemVersion` and the run's summary. nox needs macOS 11 on
+  Apple silicon and 10.14 on Intel (`SecTrustEvaluateWithError`, D9).
 - **Ad-hoc signed, not notarised:** Gatekeeper refuses it the first time ("cannot be opened
   because the developer cannot be verified" / "is damaged"). Right-click (or Control-click)
-  `Rookparcel.app` > Open, then Open; or remove the quarantine flag after copying it to
-  Applications:
+  `Rookparcel.app` > Open, then Open (on macOS 15, System Settings > Privacy & Security > Open
+  Anyway); or remove the quarantine flag after copying it to Applications:
 
   ```bash
   xattr -dr com.apple.quarantine /Applications/Rookparcel.app
   ```
 
   The nox tarball's binary the same way: `xattr -d com.apple.quarantine rookparcel-nox`.
-- **How the `.app` is made** (`.github/scripts/macos_bundle.py`): `Contents/MacOS/Rookparcel`
-  is a small launcher (`.github/scripts/macos_launcher.c`) that points GLib and GTK at the
-  bundle's schemas, icon themes, GdkPixbuf loaders and GIO modules, then becomes
-  `Contents/MacOS/rookparcel-gtk`. Every non-system library is in `Contents/Frameworks`, found by
-  walking `otool -L` and rewritten to `@executable_path/../Frameworks`; the job fails when any
-  Mach-O inside (or nox) still names a library outside the bundle. It then starts the GUI with
-  Homebrew moved away and uploads a screenshot and its output (artifact `macos-gui-start`).
-  `python3 .github/scripts/macos_bundle.py --help` lists its commands; `--dry-run FIXTURE.json`
-  runs the logic without a Mac.
+- **How the `.app` is made** (`.github/scripts/macos_bundle.py native`):
+  `Contents/MacOS/Rookparcel` is the universal binary itself, which links only the system's
+  libraries and frameworks (the job fails otherwise, and when nox does); `Contents/Info.plist`
+  (`NSPrincipalClass` `NSApplication`, `CFBundleLocalizations` for the shipped languages, the
+  document and URL types, the local network and Apple events usage texts) and
+  `Contents/Resources/Rookparcel.icns`. The job signs the app ad hoc, verifies it, starts it with
+  a fresh home folder and uploads a screenshot, its output and its own window pictures
+  (`ROOKPARCEL_SNAPSHOTS`, artifact `macos-gui-start`), then makes the dmg with `hdiutil`
+  (retried: the runners sometimes say "Resource busy"), verifies it and checks the signature of
+  the app inside. `python3 .github/scripts/macos_bundle.py --help` lists its commands;
+  `--dry-run FIXTURE.json` runs the logic without a Mac
+  (`python3 -I .github/scripts/test_macos_bundle.py`).
 - The `.app` declares `.torrent` files and `magnet:` links in its `Info.plist`, so Finder
-  offers it for them. The open requests arrive as Apple events, not command-line arguments:
-  Finder's `odoc` through GTK's own delegate into GApplication's `open` signal (the GUI sets
-  `HANDLES_OPEN` on macOS), a browser's `GURL` through a handler of our own
-  (`crates/gtk/src/macos.rs`). Preferences > General sets the defaults through LaunchServices
-  (by bundle id, so only when run from the `.app`) and writes "Start Rookparcel on system
-  startup" as `~/Library/LaunchAgents/io.github.balls0fsteel.Rookparcel.plist`, which starts
-  `Contents/MacOS/Rookparcel` (with `--minimized` for "Start minimized"); macOS 13 and later show
-  it under System Settings > General > Login Items. PLAN.md D23.
+  offers it for them; both arrive through `application:openURLs:`. Preferences > General sets
+  the defaults through LaunchServices (by bundle id, so only from the `.app` and in the default
+  profile) and writes "Start Rookparcel on system startup" as
+  `~/Library/LaunchAgents/io.github.balls0fsteel.Rookparcel.plist` (`.<profile>` for a named
+  one), which starts `Contents/MacOS/Rookparcel` (with `--minimized` for "Start minimized");
+  macOS 13 and later show it under System Settings > General > Login Items. Auto Shutdown's
+  Sleep and Shut Down are Apple events to loginwindow: macOS may ask once whether Rookparcel may
+  control it (`NSAppleEventsUsageDescription`).
+- **Library:** `~/Library/Application Support/Rookparcel/mac` (`profiles/<name>/mac`). The first
+  start takes over a GTK bundle's `gtk` folder once (renamed to `mac`, paths in its
+  `rookparcel.ini` rewritten) when there is no `mac` folder and the old one is not in use.
+- **Gate 8** (`.github/workflows/macos-gate8.yml`, run by hand): the same app for the runner's
+  own architecture, run portable, from an exFAT stick, from per-profile LaunchAgents and
+  translocated.
 
 ## The first release as Rookparcel (D59)
 
@@ -168,9 +179,10 @@ Once, before the first tag after the rename:
    tarball, the AppImages and the Flatpak on a Linux desktop;
    for macOS, the `macos-gui-start` screenshot or the owner's Intel macOS VM), compare
    `SHA256SUMS`, then publish the draft on GitHub (`gh release edit v1.0.0 --draft=false`).
-   To check the GTK GUI over SSH, where the screen cannot be captured or read, start it with
-   `ROOKPARCEL_SNAPSHOTS=<folder>`: every 2 s it draws its windows into `window-<n>.png` there
-   and lists their titles and label texts in `windows.txt`, dialogs included.
+   To check the GTK or the Mac GUI over SSH, where the screen cannot be captured or read, start
+   it with `ROOKPARCEL_SNAPSHOTS=<folder>`: every 2 s it draws its windows into `window-<n>.png`
+   there and lists their titles and texts in `windows.txt`, dialogs included (the release job
+   uploads the Mac app's in `macos-gui-start`).
 6. Publishing starts the Pages workflow, which rebuilds the website's download links and
    `update.txt`, the list the GUIs' update check reads (D32, [WEBSITE.md](WEBSITE.md)). A few
    minutes later, <https://balls0fsteel.github.io/Rookparcel/update.txt> names the new version

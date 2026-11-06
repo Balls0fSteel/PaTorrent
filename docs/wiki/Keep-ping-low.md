@@ -72,4 +72,4 @@ A router with SQM (such as CAKE) or a working gaming QoS does this better, for e
 
 ## In the GTK window and the Web UI
 
-The GTK window (Linux, BSD, macOS) has the same box on **Preferences > Bandwidth**, and the Web UI has it on its **Preferences > Bandwidth** page, with the same note. In [rookparcel-nox](Running-rookparcel-nox) it is the same setting, `auto_rate_limit`, set from the Web UI's Preferences.
+The GTK window (Linux, BSD) has the same box on **Preferences > Bandwidth**, and the Web UI has it on its **Preferences > Bandwidth** page, with the same note. In [rookparcel-nox](Running-rookparcel-nox) it is the same setting, `auto_rate_limit`, set from the Web UI's Preferences.

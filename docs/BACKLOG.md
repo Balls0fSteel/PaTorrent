@@ -46,7 +46,7 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
   TLS library would change the current dependency policy. Server identities use
   the exported but undocumented `SecIdentityCreate` via `dlsym`; a temporary
   keychain is the public alternative if that symbol disappears. The backend
-  requires macOS 10.14 APIs; the shipped GTK bundle currently requires macOS 15.
+  requires macOS 10.14 APIs; the Mac GUI needs macOS 11 (D61).
 - Web seeds and proxy tunnels need loopback HTTPS tests with a trusted test
   certificate. SChannel certificate-chain delivery needs a real CA-chain check.
 - HTTPS Web UI: open in Firefox and Chrome, compare the printed fingerprint,

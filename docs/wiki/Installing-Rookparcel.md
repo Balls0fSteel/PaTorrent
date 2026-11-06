@@ -14,10 +14,12 @@ Every release is on the [Releases page](https://github.com/Balls0fSteel/Rookparc
 | Linux desktop, Flatpak | `Rookparcel-<version>-<arch>.flatpak` | the GTK 4 window on the GNOME 51 runtime from Flathub |
 | Linux, plain binaries | `rookparcel-<version>-linux-<arch>.tar.gz` | `rookparcel-gtk`, `rookparcel-nox`, the desktop entry and the systemd units; they use the system's GTK 4 (4.12 or newer) and OpenSSL 3 |
 | Linux server, headless | `rookparcel-nox-<version>-<arch>.AppImage` | `rookparcel-nox` with OpenSSL bundled |
-| macOS, Apple silicon | `Rookparcel-<version>-arm64.dmg` | `Rookparcel.app`, the GTK 4 window with its libraries bundled (macOS 15 or newer) |
+| macOS, Apple silicon or Intel | `Rookparcel-<version>-macos.dmg` | `Rookparcel.app`, the native macOS window, one app for both kinds of Mac (macOS 11 Big Sur or newer) |
 | macOS, headless | `rookparcel-nox-<version>-macos-<arch>.tar.gz` | `rookparcel-nox` for Apple silicon (`arm64`, macOS 11 or newer) and Intel (`x86_64`, macOS 10.14 or newer) |
 
-The window on Linux, the BSDs and macOS is the GTK version. It works like the Windows version; where it differs, the wiki pages say so. Intel Macs get `rookparcel-nox` only. For running the headless daemon, see [Running rookparcel-nox](Running-rookparcel-nox).
+The window on Linux and the BSDs is the GTK version; on macOS it is a native Mac app. Both work like the Windows version; where they differ, the wiki pages say so. For running the headless daemon, see [Running rookparcel-nox](Running-rookparcel-nox).
+
+*The native macOS app is not in a published release yet. Earlier releases have `Rookparcel-<version>-arm64.dmg` instead: the GTK window bundled for Apple silicon, macOS 15 or newer.*
 
 ## Windows
 
@@ -133,7 +135,7 @@ Unpack it and start `rookparcel-gtk`. A `rookparcel.ini` file beside the binary 
 
 ## macOS
 
-1. Open `Rookparcel-<version>-arm64.dmg` and drag `Rookparcel.app` to Applications.
+1. Open `Rookparcel-<version>-macos.dmg` and drag `Rookparcel.app` to Applications.
 2. The app is ad-hoc signed and not notarised, so Gatekeeper refuses it the first time. Right-click (or Control-click) the app, choose **Open**, then click **Open**. If macOS offers no Open button, open **System Settings > Privacy & Security** and click **Open Anyway** there.
 3. Or remove the quarantine flag in Terminal:
 
@@ -141,7 +143,13 @@ Unpack it and start `rookparcel-gtk`. A `rookparcel.ini` file beside the binary 
    xattr -dr com.apple.quarantine /Applications/Rookparcel.app
    ```
 
-The window needs macOS 15 or newer on Apple silicon. Settings and torrents go to `~/Library/Application Support/Rookparcel/gtk`.
+The app runs on macOS 11 Big Sur or newer, on Apple silicon and Intel Macs alike: the one `Rookparcel.app` holds both. Settings and torrents go to `~/Library/Application Support/Rookparcel/mac`.
+
+### Upgrading from the GTK version
+
+Earlier releases had a GTK version of `Rookparcel.app` for Apple silicon. Replace it with the new `Rookparcel.app` in Applications. At its first start, the new app renames the old app's `gtk` folder in `~/Library/Application Support/Rookparcel` to `mac`, and each profile's too, so your settings, torrents and profiles carry over. This happens once, and only while no `mac` folder is there yet. Quit the old app first: while it runs, the new one says "Another Rookparcel is already using this folder" and closes. See [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files#macos).
+
+A "Start Rookparcel on system startup" entry the old app made keeps working. A portable folder is used as it is.
 
 For the headless daemon, unpack `rookparcel-nox-<version>-macos-<arch>.tar.gz` and run `rookparcel-nox` from Terminal ([Running rookparcel-nox](Running-rookparcel-nox)).
 

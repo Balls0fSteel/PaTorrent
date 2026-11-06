@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_155728_1793977048
+Last updated: 2026-11-06_160049_1793977249
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -12,7 +12,8 @@ A lean recreation of µTorrent 2.2.1: native look, small single-file binaries, a
 |---|---|---|
 | `rookparcel` | Windows 10+ x64 | Native Win32 GUI |
 | `rookparcel-nox` | All supported platforms | Daemon, native push API, Web UI, qBittorrent-compatible shim |
-| `rookparcel-gtk` | Linux / BSD / macOS | GTK 4 GUI on the shared frontend model |
+| `rookparcel-gtk` | Linux / BSD | GTK 4 GUI on the shared frontend model |
+| `rookparcel-mac` | macOS 11+ (universal) | Native AppKit GUI on `frontend::app` (D61), shipped as `Rookparcel.app` |
 
 Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), [WEBUI.md](docs/WEBUI.md), [INTEGRATIONS.md](docs/INTEGRATIONS.md). Release procedure: [RELEASING.md](docs/RELEASING.md).
 
@@ -22,17 +23,17 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services; repository, Pages, wiki and screenshots renamed. **1.2.5, the first release as Rookparcel, is published (2026-11-06)**; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak.
 
-- **Artwork studies (2026-11-05):** [12 app-icon concepts](docs/art/rookparcel-candidates-2026-11-05/README.md) (the Postal Rook won, D60), [11 small Postal Rook candidates](docs/art/postal-rook-small-2026-11-05/README.md) (09 Compact Courier, redrawn in 1.2.4) and [96 UI icon studies](docs/art/rookparcel-ui-2026-11-05/README.md) (next: select candidates, correct state semantics, redraw and check 16/20/24 px before integration).
+- **Artwork (2026-11-05):** the Postal Rook won ([concepts](docs/art/rookparcel-candidates-2026-11-05/README.md), [small marks](docs/art/postal-rook-small-2026-11-05/README.md)); the [96 UI icon studies](docs/art/rookparcel-ui-2026-11-05/README.md) await selection and 16/20/24 px redraws.
 
 - **Releases:** 1.0.1 (D19, D34) and 1.1.0 (D35) shipped; remaining hand checks are below. 1.1.17/1.1.40 history is in [release notes](docs/releases/). **1.2.0** (published 2026-11-05, [notes](docs/releases/1.2.0.md)) ships profiles (D42), D50-D55 and the bug-hunt/backlog fixes.
 - **Benchmarks:** [2026-10-27 results](docs/BENCHMARKS.md), `tools/bench`: 10,000 torrents after restart use 60 MB (qBittorrent 612 MB); one-peer download 3,592 MiB/s, 1.04 CPU s/GiB.
-- Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
+- Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check); the native macOS jobs have not run yet.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
 - The app icon is the Postal Rook (D60): drawn marks below 48 px, the generated stamp from 48 px (`assets/rookparcel-icons`).
 
 ## Next steps
 
-**macOS next (2026-11-06_155728_1793977048):** slice K, the release switch from the GTK bundle (branch `worktree-agent-a50c5e4515be13eae`, reviewed; universal `Rookparcel-<version>-macos.dmg`, GTK crate a stub on macOS, site and wiki for macOS 11), goes in with the first native release, whose draft dmg the owner checks on a real Mac (arm64, Retina, Gatekeeper) before publishing. Its workflows run for the first time then.
+**macOS next (2026-11-06_160049_1793977249):** the release switch (slice K) is merged in 1.2.18, not pushed. The first native release: push `main` with its tag (the site's new macOS text goes live with that push), watch the release workflow's first macOS run, try the draft's `Rookparcel-<version>-macos.dmg` on a real Mac (arm64, Retina, the status icon in light and dark, Gatekeeper's Open Anyway, notifications), then publish. Then the BACKLOG "macOS" items (notification delegate, panel state in portable mode, a stopped magnet's `x.pe` peer).
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
@@ -68,7 +69,7 @@ Original gate numbers are retained for references in source comments and release
 | 5 | 100,000-torrent scale gate (D21) | Measure on low-end Windows and Linux (proposal: 2 cores, 4 GB RAM, HDD); measure GTK, the Web UI's per-client model and idle CPU, and bulk removal of 1,000 torrents (last observed 0.5-1.4 s of engine alerts). Fix measured bottlenecks. |
 | 6 | Windows release zip | Done: the release job builds and smoke-tests the zip and the NSIS installer (D31). 1.1.2's zip and setup passed on a clean Windows 11 VM (2026-10-29, `tools/windows-clean`: start, static CRT, upgrade, uninstall, all users). Remaining, needing a desktop: SmartScreen on a real download, the wizard and UAC pages, "Run Rookparcel" not elevated, drag and drop, double-click associations. |
 | 7 | Linux packages | x86_64/aarch64 tarballs, GUI/nox AppImages and Flatpaks build. Run desktop AppImage and Flatpak checks, including schemas, icons, tray, HTTPS, associations and the Background portal. Flathub still needs screenshots, submission changes and the owner's exception text; see RELEASING.md. |
-| 8 | macOS (D23) | Secure Transport, CI, arm64 GTK bundle/dmg, Apple events, Login Items, associations and NSStatusItem are implemented. A real Mac must validate window content, opening files/magnets, login and tray behavior. Intel engine/nox build; the Intel GTK bundle remains absent. Current bundle requires macOS 15; the native GUI (D61, macOS 11) is to replace it. |
+| 8 | macOS (D61) | The native AppKit GUI replaces the GTK bundle from 1.2.18: one universal `Rookparcel-<version>-macos.dmg`, macOS 11, validated on the Intel VM (slice L). Still for a real Mac: arm64, Retina, the status icon in light and dark menu bars, Gatekeeper's Open Anyway, notifications; the release workflow's first native run. |
 | 9 | Manual GUI checks | Preferences (all pages, OK/Cancel/Apply, proxy and Advanced), Add (files/folders, priorities, labels, recent paths, real magnet OK/Cancel), Create, Properties (multi-select and DPI), RSS with a public feed, scheduler/hour boundary, Auto Shutdown with `ROOKPARCEL_POWER_DRY_RUN=1`, Windows integration on the real registry, moving completed data / Set Download Location across drives, seeding goals and .torrent folders. Check Pieces progress and newly resized/font-changed dialogs. |
 | 10 | Icon integration and validation | Bold UI family (D27) integrated in both GUIs. Remaining: non-100% DPI, the Trackers tab with live trackers, GTK light/dark, tray/About and macOS Retina/light/dark menu bars. |
 | 11 | Service integration | Run the nox Windows service under the real elevated SCM, including restart-on-failure and shutdown behavior. Install and exercise FreeBSD rc.d with root (only syntax-checked so far). |

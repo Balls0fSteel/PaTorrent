@@ -71,7 +71,7 @@ If you made a torrent without **Start seeding**, add the `.torrent` file like an
 
 To help a brand new torrent spread, you can turn on **Initial Seeding** for it; see [Managing torrents](Managing-torrents#initial-seeding).
 
-## In the GTK version (Linux, BSD, macOS)
+## In the GTK version (Linux, BSD)
 
 The same window with the same options, under **File > Create New Torrent...** (<kbd>Ctrl</kbd>+<kbd>N</kbd>).
 

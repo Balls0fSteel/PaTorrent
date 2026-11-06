@@ -1,6 +1,7 @@
-//! Rookparcel's GTK 4 GUI (PLAN.md Phase 7, D11, D23): the µTorrent 2.2.1 main window on the real
-//! engine for Linux, the BSDs and macOS, drawn from the same toolkit-independent
-//! `rookparcel_frontend` models as the Win32 client.
+//! Rookparcel's GTK 4 GUI (PLAN.md Phase 7, D11): the µTorrent 2.2.1 main window on the real
+//! engine for Linux and the BSDs, drawn from the same toolkit-independent `rookparcel_frontend`
+//! models as the Win32 client. Windows has its own GUI (`rookparcel.exe`) and macOS too
+//! (`rookparcel-mac`, Rookparcel.app, D52); there this crate builds a stub that says so.
 //!
 //! One instance runs per user (`GtkApplication`); starting another hands its arguments
 //! (`.torrent` files, `magnet:` links, URLs) to the running one. Settings live in
@@ -8,64 +9,58 @@
 //! (`paths`). `--remote` drives a rookparcel-nox elsewhere instead, in a process of its own
 //! (`remote`).
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod add;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod app;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod canvas;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod closing;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod create;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod detail;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod icons;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod integration;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod list;
-// on every system: its LaunchAgent text is tested wherever the tests run (Windows included)
-mod macos;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod notices;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod paths;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod preferences;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod properties;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod remote;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod rss;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod sched_grid;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod search;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod setup_guide;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod shutdown;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod sidebar;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod snapshots;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod table;
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod tray;
-// on every Unix: its pure parts are tested wherever the GTK tests run; the AppKit part is macOS's
-#[cfg(unix)]
-mod tray_macos;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_os = "macos")))]
 fn main() -> std::process::ExitCode {
-    // before GTK starts, so it needs no display: the macOS release job runs it to prove that
-    // the libraries bundled in Rookparcel.app load
+    // before GTK starts, so it needs no display
     if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
         println!("rookparcel-gtk {}", rookparcel_frontend::BUILD);
         return std::process::ExitCode::SUCCESS;
@@ -73,8 +68,13 @@ fn main() -> std::process::ExitCode {
     app::run()
 }
 
-#[cfg(not(unix))]
+#[cfg(not(all(unix, not(target_os = "macos"))))]
 fn main() {
-    eprintln!("rookparcel-gtk is the GUI for Linux, the BSDs and macOS; on Windows use rookparcel.exe.");
+    let other = if cfg!(target_os = "macos") {
+        "on macOS use Rookparcel.app (rookparcel-mac)"
+    } else {
+        "on Windows use rookparcel.exe"
+    };
+    eprintln!("rookparcel-gtk is the GUI for Linux and the BSDs; {other}.");
     std::process::exit(1);
 }

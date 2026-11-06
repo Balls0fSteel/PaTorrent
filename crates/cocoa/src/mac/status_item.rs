@@ -1,4 +1,4 @@
-//! The status item (the tray, as the GTK bundle's `tray_macos.rs` has it): an `NSStatusItem`
+//! The status item (the tray, as the retired GTK bundle had it): an `NSStatusItem`
 //! in the menu bar showing the colour application icon at 18 points (there is no monochrome
 //! rook), the rates as its tooltip (`Core::tray_tip`). A left click shows the window or hides it
 //! into the item (`lifecycle::toggle_window`); a right click or a Control-click opens

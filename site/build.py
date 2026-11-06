@@ -162,7 +162,12 @@ KINDS = [
          "OpenSSL 3, as on Ubuntu 24.04."),
     Kind("nox-appimage", "linux", r"(?:rookparcel|patorrent)-nox-VER-(?P<arch>x86_64|aarch64)\.AppImage",
          "Headless AppImage", "<code>rookparcel-nox</code> with OpenSSL bundled, for servers."),
-    Kind("dmg", "macos", r"(?:Rookparcel|PaTorrent)-VER-(?P<arch>arm64|x86_64)\.dmg",
+    # The native AppKit GUI (D52, D61): one universal disk image for every Mac.
+    Kind("dmg", "macos", r"Rookparcel-VER-macos\.dmg",
+         "Disk image", "<code>Rookparcel.app</code>, the native macOS GUI, for Apple silicon "
+         "and Intel Macs (macOS 11 Big Sur or newer)."),
+    # Older releases: the GTK 4 GUI bundled for Apple silicon only.
+    Kind("gtk-dmg", "macos", r"(?:Rookparcel|PaTorrent)-VER-(?P<arch>arm64|x86_64)\.dmg",
          "Disk image", "<code>Rookparcel.app</code>: the GTK 4 GUI with its libraries bundled "
          "(macOS 15 or newer)."),
     Kind("macos-nox", "macos", r"(?:rookparcel|patorrent)-nox-VER-macos-(?P<arch>arm64|x86_64)\.tar\.gz",
@@ -181,7 +186,8 @@ PLATFORMS = {
     "other": "Other files",
 }
 
-# x86 first on Windows and Linux, Apple silicon first on macOS (the GUI is arm64 only).
+# x86 first on Windows and Linux, Apple silicon first on macOS (the older GTK dmg was arm64
+# only; the native app's dmg is universal and has no architecture).
 ARCH_RANK = {"x64": 0, "arm64": 0, "x86_64": 1, "aarch64": 2, "": 3}
 
 
@@ -389,7 +395,7 @@ def _how_to_start(kind: str, assets: list) -> str:
     if kind == "nox-appimage":
         return ("<p>A terminal program; this starts it with the Web UI on port 8080:</p>"
                 + commands(f"chmod +x {n}", f"./{n} run --webui 8080 --webui-pass PASS") + alt)
-    if kind == "dmg":
+    if kind in ("dmg", "gtk-dmg"):
         return (f"<p>Open <code>{esc(n)}</code> and drag <code>Rookparcel.app</code> to "
                 "Applications. The first time, right-click (or Control-click) it, choose Open, "
                 'then Open again: see <a href="#gatekeeper">Gatekeeper</a>.</p>')
@@ -499,10 +505,15 @@ def direct_links(release: Release) -> str:
     if win:
         out.append('<p class="direct" data-os="windows" hidden>For Windows: '
                    + ", or ".join(f"{label} {link(a)}" for label, a in win) + "</p>")
-    dmg = next((a for a in groups.get("macos", []) if a.kind == "dmg" and a.arch == "arm64"), None)
-    if dmg:
+    mac = groups.get("macos", [])
+    dmg = next((a for a in mac if a.kind == "dmg"), None)
+    old = next((a for a in mac if a.kind == "gtk-dmg" and a.arch == "arm64"), None)
+    if dmg:  # the native app: one universal disk image for every Mac
+        out.append('<p class="direct" data-os="macos" hidden>For a Mac (Apple silicon or Intel): '
+                   + link(dmg) + ".</p>")
+    elif old:
         out.append('<p class="direct" data-os="macos" hidden>For a Mac with Apple silicon: '
-                   + link(dmg) + '. Intel Macs: <a href="download.html#macos">the headless '
+                   + link(old) + '. Intel Macs: <a href="download.html#macos">the headless '
                    "daemon</a>.</p>")
     if groups.get("linux"):
         out.append('<p class="direct" data-os="linux" hidden>For Linux: '

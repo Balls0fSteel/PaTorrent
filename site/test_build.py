@@ -130,7 +130,7 @@ class Classification(unittest.TestCase):
             f"rookparcel-nox-{v}-aarch64.AppImage": ("nox-appimage", "aarch64"),
             f"Rookparcel-{v}-x86_64.flatpak": ("flatpak", "x86_64"),
             f"Rookparcel-{v}-aarch64.flatpak": ("flatpak", "aarch64"),
-            f"Rookparcel-{v}-arm64.dmg": ("dmg", "arm64"),
+            f"Rookparcel-{v}-arm64.dmg": ("gtk-dmg", "arm64"),  # older releases' GTK bundle
             f"rookparcel-nox-{v}-macos-arm64.tar.gz": ("macos-nox", "arm64"),
             f"rookparcel-nox-{v}-macos-x86_64.tar.gz": ("macos-nox", "x86_64"),
             "SHA256SUMS": ("checksums", ""),
@@ -141,7 +141,11 @@ class Classification(unittest.TestCase):
         self.assertEqual(len(old), len(new))
         for name, kind in {**new, **old}.items():
             self.assertEqual(b.classify(name), kind, name)
-        for name in ["SHA256SUMS.asc", "rookparcel-1.0.0-windows-x64.zip.sig", "notes.txt",
+        # the native app (D52, D61): one universal disk image, only ever named Rookparcel
+        self.assertEqual(b.classify(f"Rookparcel-{v}-macos.dmg"), ("dmg", ""))
+        self.assertEqual(b.classify("Rookparcel-1.2.17-macos.dmg"), ("dmg", ""))
+        for name in ["SHA256SUMS.asc", "PaTorrent-1.0.0-macos.dmg", "rookparcel-1.0.0-macos.dmg",
+                     "Rookparcel-1.0.0-macos.zip", "Rookparcel-macos.dmg", "rookparcel-1.0.0-windows-x64.zip.sig", "notes.txt",
                      "rookparcel-1.0.0-windows-x86.zip", "Rookparcel-1.0.0-x86_64.appimage",
                      "rookparcel-1.0.0-x86_64.AppImage", "rookparcel-nightly-windows-x64.zip",
                      "Rookparcel-1.0.0-riscv64.flatpak", "rookparcel-nox-1.0.0-macos-arm64.zip",
@@ -169,7 +173,7 @@ class Classification(unittest.TestCase):
             ("flatpak", "aarch64"), ("linux-tar", "x86_64"), ("linux-tar", "aarch64"),
             ("nox-appimage", "x86_64"), ("nox-appimage", "aarch64")])
         self.assertEqual([(a.kind, a.arch) for a in groups["macos"]], [
-            ("dmg", "arm64"), ("macos-nox", "arm64"), ("macos-nox", "x86_64")])
+            ("gtk-dmg", "arm64"), ("macos-nox", "arm64"), ("macos-nox", "x86_64")])
         self.assertNotIn("other", groups)
 
     def test_skipped_assets(self):
@@ -229,6 +233,40 @@ class Pages(unittest.TestCase):
         self.assertEqual(blocks["files-other"], "")
         for name in ("files-windows", "files-linux", "files-macos"):
             self.assertNotIn("patorrent", blocks[name].lower(), name)
+        # the GTK bundle is for Apple silicon; Intel Macs are sent to the daemon
+        self.assertIn("For a Mac with Apple silicon", blocks["hero-download"])
+        self.assertIn("Rookparcel-1.3.0-arm64.dmg", blocks["hero-download"])
+        self.assertIn("macOS 15 or newer", blocks["files-macos"])
+
+    def test_native_mac_dmg(self):
+        # D52, D61: the native app is one universal dmg, offered to every Mac
+        blocks = b.blocks_for([rel("v1.4.0", assets=[
+            "rookparcel-1.4.0-windows-x64.zip", "Rookparcel-1.4.0-macos.dmg",
+            "rookparcel-nox-1.4.0-macos-arm64.tar.gz", "rookparcel-nox-1.4.0-macos-x86_64.tar.gz",
+            "SHA256SUMS"])], REPO)
+        hero, files = blocks["hero-download"], blocks["files-macos"]
+        self.assertIn("For a Mac (Apple silicon or Intel)", hero)
+        self.assertIn("Rookparcel-1.4.0-macos.dmg", hero)
+        self.assertNotIn("Intel Macs", hero)
+        self.assertIn("Rookparcel-1.4.0-macos.dmg", files)
+        self.assertIn("macOS 11 Big Sur or newer", files)
+        self.assertNotIn("GTK", files)
+        self.assertNotIn("macOS 15", files)
+        self.assertIn('href="#gatekeeper"', files)
+        self.assertEqual(blocks["files-other"], "")
+        # the dmg row comes first, without an architecture
+        self.assertLess(files.index("Rookparcel-1.4.0-macos.dmg"), files.index("macos-arm64.tar.gz"))
+        self.assertNotIn("Disk image · ", files)
+
+    def test_native_dmg_preferred(self):
+        # a release carrying both disk images points Macs at the native one
+        blocks = b.blocks_for([rel("v1.4.0", assets=[
+            "Rookparcel-1.4.0-arm64.dmg", "Rookparcel-1.4.0-macos.dmg"])], REPO)
+        hero = blocks["hero-download"]
+        self.assertIn("Rookparcel-1.4.0-macos.dmg", hero)
+        self.assertNotIn("Rookparcel-1.4.0-arm64.dmg", hero)
+        files = blocks["files-macos"]
+        self.assertLess(files.index("Rookparcel-1.4.0-macos.dmg"), files.index("Rookparcel-1.4.0-arm64.dmg"))
 
     def test_escaping(self):
         data = [rel("v1.0.0", assets=['rookparcel-1.0.0-windows-x64.zip', '<b>"x"</b>'])]

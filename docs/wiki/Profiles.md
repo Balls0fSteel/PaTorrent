@@ -22,7 +22,7 @@ A named profile lives in a `profiles` folder inside the default one:
 |---|---|---|
 | Windows | `%APPDATA%\Rookparcel` | `%APPDATA%\Rookparcel\profiles\work` |
 | Linux, BSD | `~/.config/rookparcel/gtk`, `~/.local/share/rookparcel/gtk` | `~/.config/rookparcel/profiles/work/gtk`, `~/.local/share/rookparcel/profiles/work/gtk` |
-| macOS | `~/Library/Application Support/Rookparcel/gtk` | `~/Library/Application Support/Rookparcel/profiles/work/gtk` |
+| macOS | `~/Library/Application Support/Rookparcel/mac` | `~/Library/Application Support/Rookparcel/profiles/work/mac` |
 | portable folder | the folder | `profiles\work` inside it |
 
 ## Profile names
@@ -87,7 +87,11 @@ A portable Rookparcel has profiles too, in the `profiles` folder inside the port
 - **File > Profiles** works the same. The current profile is shown as the selected item.
 - **Create Shortcut...** puts the profile in your applications menu ("Rookparcel (work)"). The profile has a desktop entry of its own, so the dock and the taskbar show its window under its own name and icon.
 - In the **Flatpak**, profiles work, but only the default profile can start with the system.
-- On **macOS**, opening a `.torrent` file or a `magnet:` link always reaches the default profile: macOS picks the app, not a profile. Starting with the system works per profile.
+
+## macOS differences
+
+- **File > Profiles** lists the profiles, **New Profile...** and **Open Profile Folder**; there is no **Create Shortcut...**.
+- Opening a `.torrent` file or a `magnet:` link always reaches the default profile: macOS picks the app, not a profile. Starting with the system works per profile.
 
 ## Profiles of rookparcel-nox
 

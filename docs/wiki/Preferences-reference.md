@@ -243,12 +243,22 @@ More: [Disk and storage](Disk-and-storage).
 
 ## Differences in the GTK version
 
-The GTK version (Linux, BSD, macOS) has the same pages and settings, with these differences:
+The GTK version (Linux, BSD) has the same pages and settings, with these differences:
 
 - There is no **Web UI** page.
 - **UI Settings** has no **Alternate list background color**. The tray and notification boxes (**Show balloon notifications in tray**, **Close to tray**, **Minimize to tray**) show only while a tray icon is on screen.
-- **General** has **Desktop Integration** instead of Windows Integration, and no **Default apps...** button. In a Flatpak the association boxes are greyed under a note: choose the default program in your desktop's settings. The **Privacy** group is not shown in a Flatpak, which Flathub updates. On macOS the association boxes work only in `Rookparcel.app`.
+- **General** has **Desktop Integration** instead of Windows Integration, and no **Default apps...** button. In a Flatpak the association boxes are greyed under a note: choose the default program in your desktop's settings. The **Privacy** group is not shown in a Flatpak, which Flathub updates.
 - <kbd>Escape</kbd> closes the window like **Cancel**.
+
+## Differences on macOS
+
+The macOS app opens Preferences from **Rookparcel > Preferences** (<kbd>⌘</kbd>+<kbd>,</kbd>). It has the GTK version's pages, listed in a sidebar, and these differences:
+
+- Each change applies at once, as in other Mac apps: there is no **OK**, **Cancel** or **Apply**. A box or list applies when you change it; a text or number field when you press <kbd>Return</kbd>, leave the field or close the window.
+- A value that is not allowed, such as a port out of range, is shown in red under its field, and the last good value stays in use. Closing the window puts the good value back in the field.
+- The association boxes work only in `Rookparcel.app` and only in the default profile.
+
+*The native macOS app is not in a published release yet.*
 
 ## Differences in the Web UI
 

@@ -1,6 +1,6 @@
 # Native macOS GUI (D52, D61): `rookparcel-mac`
 
-Planned 2026-11-06_094234_1793954554. This is the design, the rules every slice follows and one brief per slice. An agent reads **Conventions**, **Test and VM workflow** and its own slice section; the rest is background.
+Planned 2026-11-06_094234_1793954554. **Status:** all slices merged, A-J in 1.2.6-1.2.16, L (validation on the VM) in 1.2.17, K (the release switch) in 1.2.18; open items in BACKLOG "macOS". This is the design, the rules every slice follows and one brief per slice. An agent reads **Conventions**, **Test and VM workflow** and its own slice section; the rest is background.
 
 ## Why
 

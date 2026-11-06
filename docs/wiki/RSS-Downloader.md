@@ -1,6 +1,6 @@
 # RSS Downloader
 
-This page explains how to follow RSS feeds in Rookparcel and download from them: adding feeds, downloading items by hand, filters that download matching items automatically, episode and quality matching, and the history. It covers the Windows window first, then the GTK window (Linux, BSD, macOS) and the Web UI.
+This page explains how to follow RSS feeds in Rookparcel and download from them: adding feeds, downloading items by hand, filters that download matching items automatically, episode and quality matching, and the history. It covers the Windows window first, then the GTK window (Linux, BSD) and the Web UI.
 
 The RSS Downloader works like µTorrent 2.2.1's. Many torrent sites and trackers publish a feed of their new releases; Rookparcel checks your feeds every 15 minutes and adds what your filters ask for.
 

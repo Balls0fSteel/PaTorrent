@@ -1,5 +1,5 @@
-//! macOS's desktop integration as text, for both Mac GUIs (the GTK bundle's `macos.rs` re-exports
-//! it, the native one's `mac/` uses it): the per-profile LaunchAgent property list that "Start
+//! macOS's desktop integration as text, for the Mac GUI (`crates/cocoa/src/mac/`, D61; the GTK
+//! bundle wrote the same agents before): the per-profile LaunchAgent property list that "Start
 //! Rookparcel on system startup" writes ([`launch_agent`]) and reads back
 //! ([`launch_agent_arguments`]), where it lives ([`agent_label`], [`agent_path`]), and what an
 //! opened URL or a command-line argument names ([`target`]). Plain Rust, built and tested on

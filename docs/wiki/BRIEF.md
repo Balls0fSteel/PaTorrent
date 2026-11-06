@@ -7,8 +7,8 @@ This file is not copied to the wiki.
 ## Audience and goal
 
 End users of Rookparcel, not developers. Task-oriented: "how do I...". Cover the Windows GUI
-(`rookparcel.exe`) first, then say what differs in the GTK GUI (Linux, BSD, macOS) and in the
-Web UI (`rookparcel-nox`'s page, or the one a desktop window hosts). Do not describe code.
+(`rookparcel.exe`) first, then say what differs in the GTK GUI (Linux, BSD), the macOS app
+(`Rookparcel.app`) and the Web UI (`rookparcel-nox`'s page, or the one a desktop window hosts). Do not describe code.
 
 ## Accuracy rules (most important)
 
@@ -16,14 +16,13 @@ Web UI (`rookparcel-nox`'s page, or the one a desktop window hosts). Do not desc
   are copied exactly from the English strings in `crates/frontend/src/lang/en.rs`
   (and `help_en.rs` / `docs/HELP_TEXTS.md` for what a setting does). Do not guess a name.
 - Where a behaviour is only in the code, read the code (`crates/win32/src`, `crates/gtk/src`,
-  `crates/frontend/src`, `crates/nox/src`). If you cannot confirm something, leave it out.
+  `crates/cocoa/src`, `crates/frontend/src`, `crates/nox/src`). If you cannot confirm something, leave it out.
 - The wiki describes the current code, version 1.1.63. The latest published release is
   **1.1.40**. When a feature is newer than 1.1.40, say so in one line, e.g.
   "*New in 1.1.59; not in a published release yet.*" Find the version in CHANGELOG.md or
   `docs/archive/` (search by topic), or in `docs/DECISIONS.md`.
 - Do not mention internal decision IDs (D42 etc.), gates, agents, or the development plan.
-- Leave out unfinished or proposal-only features (e.g. the native macOS GUI D52, the
-  Microsoft Store flavour).
+- Leave out unfinished or proposal-only features (e.g. the Microsoft Store flavour).
 
 ## Style
 

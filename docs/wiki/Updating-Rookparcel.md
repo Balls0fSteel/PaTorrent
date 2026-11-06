@@ -48,12 +48,13 @@ Keep `rookparcel.ini` in the folder if the copy is portable. The settings and to
 
 ### Linux and macOS
 
-The GTK version's question opens the release page.
+In the GTK version and the macOS app, the question opens the release page.
 
 - **AppImage:** download the new `.AppImage`, make it executable (`chmod +x`), and start it in place of the old one. Delete the old file. Settings and torrents are not inside the AppImage, so they carry over. For a portable AppImage, put the new file beside `rookparcel.ini`.
 - **tar.gz:** exit Rookparcel and unpack the new binaries over the old ones.
 - **Flatpak:** the Flatpak has no update check. Download the newer bundle from the [Releases page](https://github.com/Balls0fSteel/Rookparcel/releases) and install it as in [Installing Rookparcel](Installing-Rookparcel#flatpak).
-- **macOS:** quit Rookparcel, then drag the new `Rookparcel.app` to Applications and replace the old one. If Gatekeeper refuses the new copy, open it as in [Installing Rookparcel](Installing-Rookparcel#macos).
+- **macOS:** quit Rookparcel (**Rookparcel > Quit Rookparcel**), then drag the new `Rookparcel.app` from `Rookparcel-<version>-macos.dmg` to Applications and replace the old one. If Gatekeeper refuses the new copy, open it as in [Installing Rookparcel](Installing-Rookparcel#macos). The same `Rookparcel.app` runs on Apple silicon and Intel Macs.
+- **macOS, from the GTK version:** earlier releases had a GTK `Rookparcel.app` for Apple silicon. Replace it the same way; at its first start the new app takes over the old one's settings and torrents. See [Installing Rookparcel](Installing-Rookparcel#upgrading-from-the-gtk-version).
 
 ## Beta versions
 

@@ -20,7 +20,8 @@ use objc2::rc::Retained;
 use objc2::runtime::{NSObjectProtocol, ProtocolObject};
 use objc2::{MainThreadMarker, available};
 use objc2_app_kit::{
-    NSApplication, NSApplicationTerminateReply, NSWorkspace, NSWorkspaceWillPowerOffNotification,
+    NSApplication, NSApplicationTerminateReply, NSNormalWindowLevel, NSWindow, NSWindowNumberListOptions,
+    NSWorkspace, NSWorkspaceWillPowerOffNotification,
 };
 use objc2_foundation::{NSActivityOptions, NSNotification, NSProcessInfo, NSString};
 use rookparcel_frontend::integration::MINIMIZED;
@@ -90,14 +91,49 @@ pub fn activate(mtm: MainThreadMarker) {
     }
 }
 
-/// The main window to the front (restored if it was minimized), the application with it.
+/// The main window to the front (restored if it was minimized), the application with it. Our
+/// windows that were in front of it (Add New Torrent, Preferences, the RSS Downloader; every one
+/// that is open while it is hidden) stay in front, in their order, the front one with the
+/// keyboard: a click on the status item must not cover an unanswered dialog.
 pub fn show_window() {
     let (Some(u), Some(mtm)) = (ui(), MainThreadMarker::new()) else { return };
+    let ahead = in_front_of(&u.window, mtm);
     if u.window.isMiniaturized() {
         u.window.deminiaturize(None);
     }
-    u.window.makeKeyAndOrderFront(None);
+    match ahead.first() {
+        None => u.window.makeKeyAndOrderFront(None),
+        Some(front) => {
+            u.window.orderFront(None);
+            for w in ahead.iter().rev() {
+                w.orderFront(None);
+            }
+            front.makeKeyWindow();
+        }
+    }
     activate(mtm);
+}
+
+/// Our ordinary windows in front of `main` on this space, front to back (all of them while
+/// `main` is hidden or minimized). Sheets go with their window; floating ones (the countdown,
+/// the closing window) and the status item's stay where they are anyway.
+fn in_front_of(main: &NSWindow, mtm: MainThreadMarker) -> Vec<Retained<NSWindow>> {
+    let app = NSApplication::sharedApplication(mtm);
+    let Some(numbers) = NSWindow::windowNumbersWithOptions(NSWindowNumberListOptions::empty(), mtm) else {
+        return Vec::new();
+    };
+    let mut ahead = Vec::new();
+    for n in numbers.iter() {
+        let n = n.integerValue();
+        if n == main.windowNumber() {
+            break;
+        }
+        let Some(w) = app.windowWithWindowNumber(n) else { continue };
+        if w.isVisible() && !w.isSheet() && w.level() == NSNormalWindowLevel && w.canBecomeKeyWindow() {
+            ahead.push(w);
+        }
+    }
+    ahead
 }
 
 /// The main window into the status item (off screen and out of the Dock's window list).

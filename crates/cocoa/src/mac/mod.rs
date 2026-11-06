@@ -12,10 +12,12 @@
 //! - [`power`]: Options > Auto Shutdown's menu, countdown and power actions.
 //! - [`about`] and [`update`]: About, Third-Party Notices, the website, Check for Updates.
 //! - [`dock`]: the Dock menu's and Dock icon's part.
+//! - [`defaults`]: a portable copy leaves `~/Library/Preferences` as it found it.
 
 pub mod about;
 pub mod assoc;
 pub mod closing;
+pub mod defaults;
 pub mod dock;
 pub mod lifecycle;
 pub mod login;

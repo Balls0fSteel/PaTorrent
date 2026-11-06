@@ -199,6 +199,11 @@ pub struct Ivars {
     restoring: Cell<bool>,
     /// A tree's items: one `NSNumber` per id, so AppKit sees the same object each time.
     items: RefCell<HashMap<u64, Retained<NSNumber>>>,
+    /// A tree's children as last counted, by parent (`None`: the top). `numberOfChildrenOfItem:`
+    /// refreshes an entry, and AppKit then asks for the children one index at a time
+    /// (`child:ofItem:`), which would otherwise build the whole list again for each child: a
+    /// folder of 50,000 files in the Add dialog took 50,000 lists of 50,000.
+    counted: RefCell<HashMap<Option<u64>, Vec<u64>>>,
 }
 
 define_class!(
@@ -307,13 +312,24 @@ define_class!(
     unsafe impl NSOutlineViewDataSource for RPTableSource {
         #[unsafe(method(outlineView:numberOfChildrenOfItem:))]
         fn children_count(&self, _ov: &NSOutlineView, item: Option<&AnyObject>) -> isize {
-            self.children(item).len() as isize
+            let children = self.children(item);
+            let n = children.len();
+            if let Some(key) = parent_key(item) {
+                self.ivars().counted.borrow_mut().insert(key, children);
+            }
+            n as isize
         }
 
         #[unsafe(method_id(outlineView:child:ofItem:))]
         fn child(&self, _ov: &NSOutlineView, index: isize, item: Option<&AnyObject>) -> Retained<AnyObject> {
-            let id = self.children(item).get(index as usize).copied().unwrap_or(0);
-            self.item(id)
+            let index = index as usize;
+            let counted = parent_key(item)
+                .and_then(|key| self.ivars().counted.borrow().get(&key).map(|c| c.get(index).copied()));
+            let id = match counted {
+                Some(id) => id,
+                None => self.children(item).get(index).copied(),
+            };
+            self.item(id.unwrap_or(0))
         }
 
         #[unsafe(method(outlineView:isItemExpandable:))]
@@ -355,6 +371,14 @@ fn item_id(item: &AnyObject) -> Option<u64> {
     item.downcast_ref::<NSNumber>().map(|n| n.as_u64())
 }
 
+/// The key of `counted` for a parent item (`Some(None)`: the top; `None`: not one of ours).
+fn parent_key(item: Option<&AnyObject>) -> Option<Option<u64>> {
+    match item {
+        None => Some(None),
+        Some(i) => item_id(i).map(Some),
+    }
+}
+
 /// Identifiers of reused cell views: the column's id plus the cell kind.
 fn reuse_id(spec: &ColumnSpec) -> Retained<NSString> {
     NSString::from_str(&format!("{}:{:?}", spec.id, spec.kind))
@@ -376,6 +400,7 @@ impl RPTableSource {
             selected: RefCell::new(Vec::new()),
             restoring: Cell::new(false),
             items: RefCell::new(HashMap::new()),
+            counted: RefCell::new(HashMap::new()),
         });
         // SAFETY: NSObject's `init` on a fresh object with its ivars set.
         unsafe { msg_send![super(this), init] }

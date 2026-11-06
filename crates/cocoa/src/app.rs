@@ -19,12 +19,14 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
+use objc2::runtime::{NSObject, NSObjectProtocol};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationDelegate, NSApplicationTerminateReply, NSMenu, NSSplitViewItem,
 };
 use objc2_foundation::{NSArray, NSNotification, NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer, NSURL};
+#[allow(deprecated)]
+use objc2_foundation::{NSUserNotification, NSUserNotificationCenter, NSUserNotificationCenterDelegate};
 use objc2_user_notifications::{
     UNNotification, UNNotificationPresentationOptions, UNUserNotificationCenter,
     UNUserNotificationCenterDelegate,
@@ -116,8 +118,8 @@ define_class!(
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn did_finish_launching(&self, _n: &NSNotification) {
             if let Some(args) = self.ivars().borrow_mut().take() {
-                // slice G: completed-download notifications show while Rookparcel is in front
-                crate::mac::notify::set_delegate(ProtocolObject::from_ref(self));
+                // completed-download notifications show while Rookparcel is in front
+                crate::mac::notify::set_delegate(self);
                 start(MainThreadMarker::from(self), args);
             }
         }
@@ -139,6 +141,7 @@ define_class!(
             if let Some(exit) = shutdown() {
                 exit.wait();
             }
+            crate::mac::defaults::restore();
         }
 
         /// A click on the Dock icon with no window shown brings the main window back.
@@ -170,6 +173,17 @@ define_class!(
             handler: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
         ) {
             handler.call((crate::mac::notify::present_options(),));
+        }
+    }
+
+    // the same for the older center, which the ad-hoc-signed app falls back on (`mac::notify`):
+    // without this answer its banners are dropped while Rookparcel is the active application
+    #[allow(deprecated)]
+    unsafe impl NSUserNotificationCenterDelegate for RPAppDelegate {
+        #[unsafe(method(userNotificationCenter:shouldPresentNotification:))]
+        fn should_present(&self, _center: &NSUserNotificationCenter, _n: &NSUserNotification) -> bool {
+            eprintln!("notifications: shown although Rookparcel is in front (NSUserNotificationCenter asked)");
+            true
         }
     }
 );
@@ -426,12 +440,6 @@ pub fn profile_names() -> Vec<Option<String>> {
 /// The selected torrents.
 pub fn selected() -> Vec<TorrentId> {
     ui().map(|u| u.list.selected().into_iter().map(TorrentId::from_raw).collect()).unwrap_or_default()
-}
-
-fn show_window() {
-    if let Some(u) = ui() {
-        u.window.makeKeyAndOrderFront(None);
-    }
 }
 
 /// Runs a command: the one place every menu item, toolbar button, Dock and status item entry

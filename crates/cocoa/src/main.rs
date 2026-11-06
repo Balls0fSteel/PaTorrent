@@ -94,6 +94,8 @@ fn main() -> std::process::ExitCode {
         }
         Err(e) => Some(e),
     };
+    // a portable copy puts AppKit's own defaults back at the end (the open and save panels')
+    mac::defaults::keep();
     // PaTorrent's folders become ours before anything reads them (D59)
     let still_patorrent = rookparcel_frontend::legacy::migrate().err();
     // slice G: the GTK bundle's library becomes this GUI's, once (D61)

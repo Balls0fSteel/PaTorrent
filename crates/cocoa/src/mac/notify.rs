@@ -5,13 +5,14 @@
 //! names queue. If it is refused or fails (as an ad-hoc-signed app may be), the older
 //! `NSUserNotificationCenter` (deprecated but working on 11 to 15) takes over. Outside a bundle
 //! (a bare executable has no bundle id, and `UNUserNotificationCenter` aborts without one) the
-//! older one is the only one. `RPAppDelegate` lets both show while Rookparcel is in front.
+//! older one is the only one. `RPAppDelegate` is both centers' delegate and lets them show while
+//! Rookparcel is in front (`willPresentNotification:`, `shouldPresentNotification:`).
 
 use std::cell::{Cell, RefCell};
 
 use block2::RcBlock;
 use objc2::rc::Retained;
-use objc2::runtime::Bool;
+use objc2::runtime::{Bool, ProtocolObject};
 #[allow(deprecated)]
 use objc2_foundation::{NSError, NSString, NSUserNotification, NSUserNotificationCenter};
 use objc2_user_notifications::{
@@ -146,11 +147,19 @@ pub fn present_options() -> UNNotificationPresentationOptions {
     UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List
 }
 
-/// Makes `delegate` the notification centers' delegate (`RPAppDelegate`, at the start).
-pub fn set_delegate(
-    delegate: &objc2::runtime::ProtocolObject<dyn objc2_user_notifications::UNUserNotificationCenterDelegate>,
-) {
-    if super::assoc::bundle_id().is_some() {
-        UNUserNotificationCenter::currentNotificationCenter().setDelegate(Some(delegate));
+/// Makes `RPAppDelegate` both notification centers' delegate (at the start), so banners show
+/// while Rookparcel is in front whichever center posts them.
+#[allow(deprecated)]
+pub fn set_delegate(delegate: &crate::app::RPAppDelegate) {
+    if super::assoc::bundle_id().is_none() {
+        return;
+    }
+    UNUserNotificationCenter::currentNotificationCenter()
+        .setDelegate(Some(ProtocolObject::from_ref(delegate)));
+    // SAFETY: `RPAppDelegate` lives as long as the application (`main` holds it until `run`
+    // returns); the center does not retain its delegate.
+    unsafe {
+        NSUserNotificationCenter::defaultUserNotificationCenter()
+            .setDelegate(Some(ProtocolObject::from_ref(delegate)));
     }
 }

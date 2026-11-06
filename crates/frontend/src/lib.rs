@@ -28,6 +28,8 @@
 //! * [`profile`]: profiles and portable mode: which folder this process keeps its files in.
 //! * [`network`]: "Use only this network" (D54): the adapters, the rule's controls, the status.
 //! * [`setup_guide`]: the Setup Guide (D53): the first start's questions and what they set.
+//! * [`app`]: the toolkit-free controller a GUI drives (D61): the alert loop, the timer and
+//!   the torrent commands of GTK's `App`, without widgets.
 
 /// The version a build shows (title bars, About, `--version`): [`rookparcel_core::VERSION`] with
 /// `-dev.<commit>` when it is not a tagged release, and `.dirty` from `1_build.bat` when the tree
@@ -41,6 +43,7 @@ pub const NAME_BUILD: &str = concat!("Rookparcel ", env!("ROOKPARCEL_BUILD_VERSI
 
 pub mod actions;
 pub mod add;
+pub mod app;
 pub mod auto_shutdown;
 pub mod closing;
 pub mod columns;

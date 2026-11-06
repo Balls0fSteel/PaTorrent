@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-05_225249_1793915569
+Last updated: 2026-11-06_112123_1793960483
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -60,3 +60,4 @@ rg -n -C 4 '2026-10-20_131729|super.seed' docs/archive/CHANGELOG-2026-10-15--202
 Keep archives as plain Markdown so Git diffs, repository browsing and targeted searches work without extraction. Add new dated files with unique names and update this index. Keep root documents around 16 KiB / 200 lines or less, moving complete older changelog entries and summarizing completed plan work before they exceed that budget. Never move unresolved work solely into a historical snapshot.
 | [Changelog, 2026-11-05, v1.1.71-v1.1.74](CHANGELOG-2026-11-05-v1.1.71-v1.1.74-2026-11-05_225249_1793915569.md) | `2026-11-05_101739_1793870259` through `2026-11-05_102610_1793870770` | Four complete entries moved on 2026-11-05_225249_1793915569: Win32, nox/frontend/GTK, disk/platform and engine bug-hunt fixes, including validation. |
 | [Changelog, 2026-11-05, v1.1.75-v1.1.78](CHANGELOG-2026-11-05-v1.1.75-v1.1.78-2026-11-06_082258_1793949778.md) | `2026-11-05_104753_1793872073` through `2026-11-05_152743_1793888863` | 4 complete entries moved on 2026-11-06_082258_1793949778: versions 1.1.75-1.1.78 (GTK keys and shading, engine backlog items, update and tray fixes, search hash check and Web UI fixes), including validation. |
+| [Changelog, 2026-11-05, v1.2.0-v1.2.2](CHANGELOG-2026-11-05-v1.2.0-v1.2.2-2026-11-06_112123_1793960483.md) | `2026-11-05_183712_1793900232` through `2026-11-05_220518_1793912718` | 4 complete entries moved on 2026-11-06_112123_1793960483: the 1.2.0 release, the banned-login answer (1.2.1), the rename to Rookparcel with the PaTorrent takeover (1.2.2, D59) and the first artwork exploration, including validation. |

@@ -13,6 +13,16 @@ Road to 1.0 item 8). Run by the `macos` job of .github/workflows/release.yml.
       themes), Contents/Resources/Rookparcel.icns, Contents/Info.plist. Every Mach-O inside is
       ad-hoc signed; the job then signs the whole app.
 
+  macos_bundle.py native --binary target/aarch64-apple-darwin/release/rookparcel-mac
+                         [--binary target/x86_64-apple-darwin/release/rookparcel-mac]
+                         --icon-dir DIR --app-id ID --version V --out Rookparcel.app [--extra FILE]...
+      The native AppKit GUI (crates/cocoa, docs/MACOS_GUI.md): Contents/MacOS/Rookparcel is the
+      binary itself (two are joined with `lipo` into one universal binary), Contents/Info.plist
+      (NSPrincipalClass NSApplication, macOS 11 at least, CFBundleLocalizations for the shipped
+      languages), Contents/Resources/Rookparcel.icns (with the 1024 px entry when DIR has a
+      1024.png) and the --extra files; the binary may link only the system's libraries. The
+      whole app is ad-hoc signed.
+
   macos_bundle.py deps --lib-dir DIR --ref REF BINARY...
       The same library walk for plain binaries (rookparcel-nox in a tarball, say): copies what
       they need into DIR and rewrites the references to REF/<name> (`@executable_path/lib`).
@@ -167,6 +177,12 @@ class FakeTools(Tools):
                     i += 2
                 else:
                     raise BundleError('dry run: unknown install_name_tool option ' + argv[i])
+        elif argv[0] == 'lipo':
+            out = argv[argv.index('-output') + 1]
+            with open(out, 'wb') as f:
+                f.write(MACHO_MAGIC[4])
+            first = self.db.get(key(argv[argv.index('-create') + 1]), {})
+            self.db[key(out)] = json.loads(json.dumps(first))
         elif argv[0] == 'clang':
             out = argv[argv.index('-o') + 1]
             with open(out, 'wb') as f:
@@ -429,10 +445,18 @@ ICONSET = [  # (iconutil's name, the PNG's size)
 ]
 
 
-def icns(tools, icon_dir, res, staging):
+def icns(tools, icon_dir, res, staging, retina_512=False):
+    """`retina_512`: add the 1024 px entry (icon_512x512@2x) when `icon_dir` has a 1024.png;
+    without one the icns ends at 512 px, and this says so."""
     iconset = os.path.join(staging, 'Rookparcel.iconset')
     os.makedirs(iconset, exist_ok=True)
-    for name, size in ICONSET:
+    entries = list(ICONSET)
+    if retina_512:
+        if os.path.isfile(os.path.join(icon_dir, '1024.png')):
+            entries.append(('icon_512x512@2x.png', 1024))
+        else:
+            log('note: {} has no 1024.png: the icns has no 1024 px entry (icon_512x512@2x)'.format(icon_dir))
+    for name, size in entries:
         src = os.path.join(icon_dir, '{}.png'.format(size))
         if not os.path.isfile(src):
             raise BundleError('icon {} is missing'.format(src))
@@ -488,6 +512,73 @@ def info_plist(app_id, version, minos):
             'CFBundleURLSchemes': ['magnet'],
         }],
     }
+
+
+def languages(lang_dir=None):
+    """The shipped languages as Apple names them (CFBundleLocalizations): English and every
+    crates/frontend/lang/<code>.lng (de, pt-BR, zh-Hans, ...)."""
+    lang_dir = lang_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'crates',
+                                        'frontend', 'lang')
+    codes = sorted(f[:-4] for f in os.listdir(lang_dir) if f.endswith('.lng'))
+    if 'en' not in codes:
+        raise BundleError('{} has no en.lng'.format(lang_dir))
+    return ['en'] + [c for c in codes if c != 'en']
+
+
+def native_plist(app_id, version, minos, localizations):
+    """The native GUI's Info.plist: the GTK bundle's keys (document and URL types, the UTI,
+    the local network text) with AppKit's principal class and the shipped languages."""
+    p = info_plist(app_id, version, minos)
+    p['NSPrincipalClass'] = 'NSApplication'
+    p['CFBundleLocalizations'] = localizations
+    p['CFBundleAllowMixedLocalizations'] = True
+    return p
+
+
+def make_native(tools, a):
+    app = os.path.abspath(a.out)
+    contents = os.path.join(app, 'Contents')
+    macos = os.path.join(contents, 'MacOS')
+    res = os.path.join(contents, 'Resources')
+    staging = app + '.staging'
+    for d in (app, staging):
+        if os.path.exists(d):
+            shutil.rmtree(d)
+    for d in (macos, res, staging):
+        os.makedirs(d)
+    exe = os.path.join(macos, 'Rookparcel')
+
+    log('== binary')
+    if len(a.binary) > 2:
+        raise BundleError('at most two binaries (arm64 and x86_64)')
+    if len(a.binary) == 2:
+        tools.run(['lipo', '-create', os.path.abspath(a.binary[0]), os.path.abspath(a.binary[1]), '-output', exe])
+    else:
+        tools.copy(a.binary[0], exe)
+    if not tools.dry:
+        tools.run(['lipo', '-info', exe])
+
+    log('== data')
+    icns(tools, a.icon_dir, res, staging, retina_512=True)
+    for f in a.extra:
+        shutil.copy2(f, res)
+
+    log('== check')
+    problems, minos = check(tools, app, macos)
+    report(problems, a.out)
+    minos = max(minos or '11.0', '11.0', key=version_key)
+    log('minimum macOS (the highest LC_BUILD_VERSION minos inside): ' + minos)
+    with open(os.path.join(contents, 'Info.plist'), 'wb') as f:
+        plistlib.dump(native_plist(a.app_id, a.version, minos, languages(a.lang_dir)), f)
+    with open(os.path.join(contents, 'PkgInfo'), 'w') as f:
+        f.write('APPL????')
+
+    log('== ad-hoc signing')
+    tools.run(['codesign', '--force', '--sign', '-', app])
+    shutil.rmtree(staging)
+    if a.minos_file:
+        with open(a.minos_file, 'w') as f:
+            f.write(minos + '\n')
 
 
 def make_app(tools, a):
@@ -568,6 +659,15 @@ def main():
     s.add_argument('--out', required=True)
     s.add_argument('--extra', action='append', default=[], help='a file for Contents/Resources')
     s.add_argument('--minos-file', help='write the minimum macOS version here')
+    s = sub.add_parser('native')
+    s.add_argument('--binary', required=True, action='append', help='rookparcel-mac; twice for a universal app')
+    s.add_argument('--icon-dir', required=True, help='folder with 16.png ... 512.png (and 1024.png)')
+    s.add_argument('--app-id', required=True)
+    s.add_argument('--version', required=True)
+    s.add_argument('--out', required=True)
+    s.add_argument('--extra', action='append', default=[], help='a file for Contents/Resources')
+    s.add_argument('--lang-dir', help='the .lng files (default: crates/frontend/lang)')
+    s.add_argument('--minos-file', help='write the minimum macOS version here')
     s = sub.add_parser('deps')
     s.add_argument('--lib-dir', required=True)
     s.add_argument('--ref', required=True, help='the reference prefix, e.g. @executable_path/lib')
@@ -580,6 +680,8 @@ def main():
     try:
         if a.cmd == 'app':
             make_app(tools, a)
+        elif a.cmd == 'native':
+            make_native(tools, a)
         elif a.cmd == 'deps':
             for b in a.binaries:
                 b = os.path.abspath(b)

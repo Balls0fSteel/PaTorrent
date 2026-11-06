@@ -63,6 +63,11 @@ jobs:
       # hide the results of the others
       - run: cargo test --workspace --no-fail-fast
       - run: cargo build --workspace --exclude rookparcel-gtk --target x86_64-apple-darwin
+      # the native GUI (crates/cocoa, docs/MACOS_GUI.md) is linted for Intel Macs too; the
+      # workspace's clippy above covers arm64
+      - run: cargo clippy -p rookparcel-mac --all-targets --target x86_64-apple-darwin -- -D warnings
+      - name: macos_bundle.py dry-run tests
+        run: python3 -I .github/scripts/test_macos_bundle.py
       # a test binary that crashes prints nothing of its own: macOS's crash report says why
       - name: Crash reports
         if: failure()
@@ -76,6 +81,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - run: cargo check --workspace --all-targets
+      # the native macOS GUI's AppKit code builds only for macOS: type-checked here with the
+      # minimum Rust (nothing links on Linux)
+      - run: rustup target add aarch64-apple-darwin
+      - run: cargo check -p rookparcel-mac --target aarch64-apple-darwin
 
   # the release build, its slow tests and reports, and the installer that release.yml makes
   # (built, installed and uninstalled here too, so installer breakage shows before a tag)

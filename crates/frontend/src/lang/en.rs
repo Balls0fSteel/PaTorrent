@@ -1362,4 +1362,48 @@ strings! {
     /// Page 4: starting with the system and opening .torrent files and magnet: links.
     GuidePageComputer = "This computer";
     GuideComputerText = "Rookparcel can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.";
+
+    // ---- macOS menus: the Mac GUI's own items, as macOS names them (no &: Mac menus have no mnemonics)
+
+    /// The menu bar's Edit menu.
+    MacMenuEdit = "Edit";
+    /// The menu bar's View menu.
+    MacMenuView = "View";
+    /// The menu bar's menu of the selected torrents' commands (Start, Stop, Remove, ...).
+    MacMenuTorrent = "Torrent";
+    /// The menu bar's Window menu.
+    MacMenuWindow = "Window";
+    /// The application menu's submenu of the system's services.
+    MacServices = "Services";
+    /// Hides every other application's windows.
+    MacHideOthers = "Hide Others";
+    /// Shows every application's windows again.
+    MacShowAll = "Show All";
+    MacQuit = "Quit Rookparcel";
+    MacUndo = "Undo";
+    MacRedo = "Redo";
+    MacCut = "Cut";
+    MacCopy = "Copy";
+    MacPaste = "Paste";
+    MacDelete = "Delete";
+    /// Edit menu: moves to the toolbar's search box.
+    MacFind = "Find...";
+    /// View menu, while the toolbar is shown (Show Toolbar is MenuShowToolbar).
+    MacHideToolbar = "Hide Toolbar";
+    /// View menu: the window where toolbar buttons are added, removed and moved.
+    MacCustomizeToolbar = "Customize Toolbar...";
+    /// View menu: the list of categories, labels and feeds at the window's left.
+    MacShowSidebar = "Show Sidebar";
+    MacHideSidebar = "Hide Sidebar";
+    /// View menu, while the detail tabs are shown (Show Detailed Info is MenuShowDetails).
+    MacHideDetails = "Hide Detailed Info";
+    /// View menu, while the status bar is shown (Show Status Bar is MenuShowStatus).
+    MacHideStatusBar = "Hide Status Bar";
+    MacEnterFullScreen = "Enter Full Screen";
+    /// Window menu: puts the window into the Dock.
+    MacMinimize = "Minimize";
+    /// Window menu: switches the window between its size and the screen's.
+    MacZoom = "Zoom";
+    MacBringAllToFront = "Bring All to Front";
+    MacCloseWindow = "Close Window";
 }

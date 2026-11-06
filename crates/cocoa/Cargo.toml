@@ -1,0 +1,193 @@
+[package]
+name = "rookparcel-mac"
+description = "Rookparcel's native macOS GUI on AppKit, in the spirit of µTorrent 2.2.1 (docs/MACOS_GUI.md)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "rookparcel-mac"
+path = "src/main.rs"
+
+[dependencies]
+rookparcel-core = { workspace = true, features = ["mock"] }
+rookparcel-frontend.workspace = true
+
+# AppKit through objc2 (D61). Every feature on its own line, sorted, so slices that add one merge
+# cleanly. Other systems build the stub `main` in main.rs.
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = { workspace = true, features = [
+    "alloc",
+    "std",
+] }
+objc2 = { workspace = true, features = [
+    "alloc",
+    "std",
+] }
+objc2-app-kit = { workspace = true, features = [
+    "NSAccessibility",
+    "NSAccessibilityConstants",
+    "NSAccessibilityProtocols",
+    "NSActionCell",
+    "NSAlert",
+    "NSAnimationContext",
+    "NSAppearance",
+    "NSApplication",
+    "NSAttributedString",
+    "NSBezierPath",
+    "NSBitmapImageRep",
+    "NSBox",
+    "NSButton",
+    "NSButtonCell",
+    "NSCell",
+    "NSClipView",
+    "NSColor",
+    "NSColorSpace",
+    "NSComboBox",
+    "NSComboBoxCell",
+    "NSControl",
+    "NSCursor",
+    "NSDockTile",
+    "NSDragging",
+    "NSDraggingItem",
+    "NSEvent",
+    "NSFont",
+    "NSFontDescriptor",
+    "NSGraphics",
+    "NSGraphicsContext",
+    "NSGridView",
+    "NSImage",
+    "NSImageCell",
+    "NSImageRep",
+    "NSImageView",
+    "NSLayoutAnchor",
+    "NSLayoutConstraint",
+    "NSLayoutGuide",
+    "NSMenu",
+    "NSMenuItem",
+    "NSOpenPanel",
+    "NSOutlineView",
+    "NSPanel",
+    "NSParagraphStyle",
+    "NSPasteboard",
+    "NSPasteboardItem",
+    "NSPopUpButton",
+    "NSPopUpButtonCell",
+    "NSPopover",
+    "NSProgressIndicator",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSSavePanel",
+    "NSScreen",
+    "NSScrollView",
+    "NSScroller",
+    "NSSearchField",
+    "NSSearchFieldCell",
+    "NSSecureTextField",
+    "NSSegmentedCell",
+    "NSSegmentedControl",
+    "NSSlider",
+    "NSSplitView",
+    "NSSplitViewController",
+    "NSSplitViewItem",
+    "NSStackView",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
+    "NSStepper",
+    "NSStringDrawing",
+    "NSTabView",
+    "NSTabViewItem",
+    "NSTableCellView",
+    "NSTableColumn",
+    "NSTableHeaderCell",
+    "NSTableHeaderView",
+    "NSTableRowView",
+    "NSTableView",
+    "NSText",
+    "NSTextField",
+    "NSTextFieldCell",
+    "NSTextView",
+    "NSToolbar",
+    "NSToolbarItem",
+    "NSTrackingArea",
+    "NSTrackingSeparatorToolbarItem",
+    "NSUserInterfaceItemIdentification",
+    "NSUserInterfaceLayout",
+    "NSUserInterfaceValidation",
+    "NSView",
+    "NSViewController",
+    "NSVisualEffectView",
+    "NSWindow",
+    "NSWindowController",
+    "NSWorkspace",
+    "alloc",
+    "bitflags",
+    "block2",
+    "objc2-core-foundation",
+    "objc2-uniform-type-identifiers",
+    "std",
+] }
+objc2-foundation = { workspace = true, features = [
+    "NSAppleEventDescriptor",
+    "NSAppleEventManager",
+    "NSArray",
+    "NSAttributedString",
+    "NSBundle",
+    "NSData",
+    "NSDate",
+    "NSDictionary",
+    "NSDistributedNotificationCenter",
+    "NSEnumerator",
+    "NSError",
+    "NSFileManager",
+    "NSGeometry",
+    "NSIndexSet",
+    "NSNotification",
+    "NSObjCRuntime",
+    "NSObject",
+    "NSProcessInfo",
+    "NSRange",
+    "NSRunLoop",
+    "NSSet",
+    "NSSortDescriptor",
+    "NSString",
+    "NSThread",
+    "NSTimeZone",
+    "NSTimer",
+    "NSURL",
+    "NSUserDefaults",
+    "NSValue",
+    "alloc",
+    "block2",
+    "objc2-core-foundation",
+    "std",
+] }
+objc2-uniform-type-identifiers = { workspace = true, features = [
+    "UTCoreTypes",
+    "UTType",
+    "alloc",
+    "std",
+] }
+objc2-user-notifications = { workspace = true, features = [
+    "UNError",
+    "UNNotification",
+    "UNNotificationContent",
+    "UNNotificationRequest",
+    "UNNotificationResponse",
+    "UNNotificationSettings",
+    "UNNotificationSound",
+    "UNNotificationTrigger",
+    "UNUserNotificationCenter",
+    "alloc",
+    "bitflags",
+    "block2",
+    "std",
+] }
+
+[lints]
+workspace = true

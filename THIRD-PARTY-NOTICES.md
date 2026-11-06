@@ -135,16 +135,18 @@ Each is used under the MIT license (where a crate also offers Apache-2.0 or the 
 |---|---|---|---|
 | `mio` | engine (all binaries): the network event loop (PLAN.md D2) | MIT | (c) 2014 Carl Lerche and other MIO contributors |
 | `log` (pulled in by `mio`) | same | MIT OR Apache-2.0 | (c) 2014 The Rust Project Developers |
-| `libc` (pulled in by `mio`, `glib`) | same (Unix only), and the GTK GUI | MIT OR Apache-2.0 | (c) The Rust Project Developers |
+| `libc` (pulled in by `mio`, `glib`, objc2) | same (Unix only), and the GTK and macOS GUIs | MIT OR Apache-2.0 | (c) The Rust Project Developers |
 | `windows-sys` | engine (sparse files, and mio on Windows), Win32 GUI, `lt-swarm` (Windows only) | MIT OR Apache-2.0 | (c) Microsoft Corporation |
 | `windows-link` (pulled in by `windows-sys`) | same | MIT OR Apache-2.0 | (c) Microsoft Corporation |
 | `gtk4`, `gtk4-sys`, `gdk4`, `gdk4-sys`, `gsk4`, `gsk4-sys`, `glib`, `glib-sys`, `gobject-sys`, `gio`, `gio-sys`, `pango`, `pango-sys`, `cairo-rs`, `cairo-sys-rs`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `graphene-rs`, `graphene-sys` (gtk-rs) | the GTK GUI (`rookparcel-gtk`, PLAN.md D11) | MIT | (c) The gtk-rs Project Developers |
 | `futures-channel`, `futures-core`, `futures-executor`, `futures-io`, `futures-task`, `futures-util` (pulled in by `glib`) | same | MIT OR Apache-2.0 | (c) 2016 Alex Crichton |
-| `bitflags` (pulled in by gtk-rs) | same | MIT OR Apache-2.0 | (c) 2014 The Rust Project Developers |
+| `bitflags` (pulled in by gtk-rs and objc2) | same, and the macOS GUI | MIT OR Apache-2.0 | (c) 2014 The Rust Project Developers |
 | `smallvec` (pulled in by `glib`) | same | MIT OR Apache-2.0 | (c) 2018 The Servo Project Developers |
 | `memchr` (pulled in by `futures-util`) | same | Unlicense OR MIT | (c) 2015 Andrew Gallant |
 | `pin-project-lite`, `slab` (pulled in by `futures-util`) | same | Apache-2.0 OR MIT; MIT | (c) the pin-project-lite authors; (c) 2019 Carl Lerche |
 | `field-offset`, `memoffset` (pulled in by `glib`) | same | MIT OR Apache-2.0; MIT | (c) 2016-2021 Diggory Blake, and other contributors; (c) 2017 Gilad Naaman |
+| `objc2`, `objc2-encode`, `block2` | the macOS GUI (`rookparcel-mac`, D52, D61): the Objective-C runtime, type encodings and blocks | MIT | (c) Steven Sheldon (the `objc` crate they grew from), Mads Marquart and the objc2 contributors |
+| `objc2-foundation`, `objc2-app-kit`, `objc2-core-foundation`, `dispatch2`, `objc2-user-notifications`, `objc2-uniform-type-identifiers` | same: bindings generated from Apple's SDK headers | MIT; the others Zlib OR Apache-2.0 OR MIT | (c) Mads Marquart and the objc2 contributors |
 
 Build-time only, not in the binaries: the gtk-rs build scripts' `system-deps` and their procedural macros (`glib-macros`, `gtk4-macros`, `futures-macro` with `syn`, `quote`, `proc-macro2`, `proc-macro-crate`, `toml_*` and their dependencies).
 

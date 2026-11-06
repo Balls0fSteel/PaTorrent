@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_101504_1793956504
+Last updated: 2026-11-06_112123_1793960483
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,7 +18,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Slice A (`frontend::app`) is merged in 1.2.6; slice B is in progress.
+- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Wave 0 is merged: slice A (`frontend::app`) in 1.2.6, slice B (`crates/cocoa`, bundling, VM tools) in 1.2.7, running on `Core`. Next: wave 1 (C-G).
 
 - **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. The repository is renamed (Pages at `/Rookparcel/`), `main` and the wiki are pushed (2026-11-05); the icon is D60. The site's and the wiki's screenshots show 1.2.4; old release titles read "Rookparcel X (released as PaTorrent)" (2026-11-06). **1.2.5, the first release as Rookparcel, is published (2026-11-06_085947_1793951987)** with its news entry; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak (the notes' Flatpak copy steps are untried).
 
@@ -32,7 +32,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**macOS next (2026-11-06_094234_1793954554):** issue wave 0 of [MACOS_GUI.md](docs/MACOS_GUI.md) (slices A and B in parallel worktrees), then review and merge each branch with a version bump and a VM run.
+**macOS next (2026-11-06_112123_1793960483):** wave 1 of [MACOS_GUI.md](docs/MACOS_GUI.md) (slices C-G in parallel worktrees, at most three on the VM at once), then review and merge each branch with a version bump and a VM run. The VM's screen must be unlocked by the owner for key-window checks.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

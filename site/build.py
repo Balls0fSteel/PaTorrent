@@ -28,6 +28,7 @@ Python 3.9+ standard library only; it runs on the Pages workflow's Ubuntu runner
 from __future__ import annotations
 
 import argparse
+import hashlib
 import html
 import json
 import os
@@ -876,6 +877,25 @@ def prepare_out(out: Path) -> None:
         shutil.rmtree(out)
 
 
+def icon_version(img: Path) -> str:
+    """A short hash of the app icon's PNGs, which changes whenever the icon does."""
+    h = hashlib.sha256()
+    for size in ICON_SIZES:
+        h.update((img / f"icon-{size}.png").read_bytes())
+    return h.hexdigest()[:10]
+
+
+# <link rel="icon"> and <link rel="apple-touch-icon"> to the app icon
+ICON_LINK = re.compile(r'(<link\b[^>]*\brel="(?:icon|apple-touch-icon)"[^>]*\bhref="img/icon-\d+\.png)(")')
+
+
+def stamp_icon_links(text: str, stamp: str) -> str:
+    """Adds `?v=<stamp>` to the favicon links. Browsers keep a favicon per page long after its
+    cache time and ignore a changed file at the same URL; a new URL makes them fetch the new
+    icon (they kept showing the Verdigris after D60)."""
+    return ICON_LINK.sub(lambda m: f"{m.group(1)}?v={stamp}{m.group(2)}", text)
+
+
 def build(out: Path, releases: Optional[list], repo: str, base_path: str) -> list:
     """Writes the site to `out`; returns the warnings."""
     warnings = []
@@ -886,6 +906,7 @@ def build(out: Path, releases: Optional[list], repo: str, base_path: str) -> lis
     (out / "img").mkdir(exist_ok=True)
     for size in ICON_SIZES:
         shutil.copyfile(family / f"{size}.png", out / "img" / f"icon-{size}.png")
+    icon_stamp = icon_version(out / "img")
 
     news_page = out / NEWS_PAGE
     if not news_page.is_file():
@@ -899,6 +920,7 @@ def build(out: Path, releases: Optional[list], repo: str, base_path: str) -> lis
         text = page.read_text(encoding="utf-8")
         text = fill(text, blocks, str(page.relative_to(out)))
         text = add_image_sizes(text, page, out, warnings)
+        text = stamp_icon_links(text, icon_stamp)
         page.write_text(text, encoding="utf-8", newline="\n")
 
     stable, pre = pick(parse_releases(releases)) if releases is not None else (None, None)

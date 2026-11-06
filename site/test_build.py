@@ -375,6 +375,12 @@ class WholeBuild(unittest.TestCase):
             self.assertIn('type="application/atom+xml"', (out / "news.html").read_text(encoding="utf-8"))
             for size in b.ICON_SIZES:
                 self.assertEqual(b.png_size(out / "img" / f"icon-{size}.png"), (size, size))
+            # every page's favicon links carry the icon's hash, so browsers drop an old icon
+            stamp = b.icon_version(out / "img")
+            for page in out.glob("*.html"):
+                text = page.read_text(encoding="utf-8")
+                self.assertIn(f'href="img/icon-32.png?v={stamp}"', text, page.name)
+                self.assertNotIn('href="img/icon-32.png"', text, page.name)
             self.assertFalse((out / "build.py").exists())
             self.assertFalse((out / "testdata").exists())
             self.assertFalse(any(out.glob("test_*.py")))

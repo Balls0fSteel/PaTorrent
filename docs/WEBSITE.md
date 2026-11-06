@@ -32,7 +32,9 @@ only) copies them to `_site/` and fills in the newest release from the GitHub re
 
 The app icon is not copied into `site/`: the build takes 16, 32, 64, 128 and 256 px from
 `assets/patina-icons/exports/app/<family>/`, the family `assets/patina-icons/app-icon.txt`
-names, so the site follows the app when the brand changes. Screenshots should stay small (a PNG
+names, so the site follows the app when the brand changes. The build adds `?v=<hash of the
+icon PNGs>` to every page's favicon and `apple-touch-icon` links: browsers keep a favicon per
+page and ignore a changed file at the same URL, so only a new URL makes them show a new icon. Screenshots should stay small (a PNG
 of the window at 100 % scaling, run through an optimiser); the build gives every local PNG
 `<img>` without a size its `width` and `height`, so the page does not jump while it loads.
 

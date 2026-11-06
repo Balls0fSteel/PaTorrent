@@ -334,6 +334,18 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   `lifecycle::quit`); on the VM a 2-profile transfer with 256 KiB pieces connected but never
   downloaded while 16 KiB pieces worked: reproduce with nox on the VM and Linux to rule out an
   engine fault.
+  Slice L (2026-11-06_155728_1793977048, validated on the unlocked VM): the interactive checks
+  above passed. Open: (A) completion notifications: the system refuses them for the ad-hoc dev
+  bundle, and `NSUserNotificationCenter` banners are hidden while the app is in front because no
+  delegate answers `userNotificationCenter:shouldPresentNotification:` with YES (`mac/notify.rs`'s
+  doc claims one): add it, check on the owner's Mac with notifications allowed; (B) AppKit's
+  open/save panels write `NSNav*`/`NSOSPLastRootDirectory` keys to
+  `~/Library/Preferences/io.github.balls0fsteel.Rookparcel.plist` even in portable mode (a
+  volatile `NSUserDefaults` domain could keep them out, or document it); (C) engine: a magnet added
+  stopped with an `x.pe` peer and started later never reconnects to it (started at once it
+  downloads), with the 256 KiB note above; (D) a status-item click raises the main window over an
+  open Add dialog. For the owner's real Mac: arm64, Retina, the status icon in light and dark menu
+  bars, Gatekeeper's Open Anyway on a downloaded dmg, Hide Others, a drop on the Dock icon.
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

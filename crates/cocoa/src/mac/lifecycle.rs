@@ -35,6 +35,8 @@ thread_local! {
     /// The application is ending (`applicationShouldTerminate:` came): windows that close now
     /// are not answered (a first-start Setup Guide quit leaves the settings to ask again, D53).
     static QUITTING: Cell<bool> = const { Cell::new(false) };
+    /// A minimized window is on its way from the Dock into the status item.
+    static TO_TRAY: Cell<bool> = const { Cell::new(false) };
     static OBSERVERS: RefCell<Vec<Retained<ProtocolObject<dyn NSObjectProtocol>>>> = const { RefCell::new(Vec::new()) };
 }
 
@@ -138,7 +140,23 @@ pub fn window_should_close() -> bool {
 /// the status item or the Dock icon brings it back.
 pub fn did_miniaturize() {
     if peek(|c| c.gui_options().minimize_to_tray).unwrap_or(false) {
-        hide_window();
+        // a minimized window ordered out keeps its Dock tile (checked on the VM): it comes back
+        // out of the Dock first (after AppKit's own miniaturize has ended) and is hidden when
+        // that is done (`did_deminiaturize`)
+        TO_TRAY.with(|t| t.set(true));
+        mainq::on_main(|| {
+            if let Some(u) = ui() {
+                u.window.deminiaturize(None);
+            }
+        });
+    }
+}
+
+/// `windowDidDeminiaturize:`: the window left the Dock for the status item ([`did_miniaturize`]).
+pub fn did_deminiaturize() {
+    if TO_TRAY.with(|t| t.replace(false)) {
+        // after the notification: ordered out from within it, the Dock tile stayed
+        mainq::on_main(hide_window);
     }
 }
 

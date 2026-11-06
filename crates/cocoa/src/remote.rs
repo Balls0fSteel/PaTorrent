@@ -183,7 +183,7 @@ pub fn ask(done: impl FnOnce(Connected) + 'static) {
     let window = dialogs::window(&ui::text(tr!(RemoteTitle)), &root, None, false, mtm);
     // the first empty field gets the focus
     let first: &NSView = if form.host.is_empty() { &host } else { &password };
-    window.setInitialFirstResponder(Some(first));
+    dialogs::focus_first(&window, first);
     let d = Rc::new(Dialog {
         id,
         window: window.clone(),

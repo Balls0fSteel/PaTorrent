@@ -573,8 +573,9 @@ fn commit(st: &State, key: &'static str) {
 pub(crate) fn apply(st: &State, o: Options) {
     let old = st.applied.borrow().clone();
     if o.integration != old.integration {
+        // (the message is whole: `set_integration` puts it in `ErrDesktopIntegration`)
         if let Err(e) = crate::mac::set_integration(&old.integration, &o.integration) {
-            sheet(st, ui::Style::Error, &tr!(ErrDesktopIntegration, error = e));
+            sheet(st, ui::Style::Error, &e);
         }
     }
     let ev = with_core(|c| c.apply_options(&o));

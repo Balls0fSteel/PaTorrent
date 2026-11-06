@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_112123_1793960483
+Last updated: 2026-11-06_132853_1793968133
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,7 +18,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Wave 0 is merged (A `frontend::app` in 1.2.6, B `crates/cocoa` in 1.2.7), the wave 1 contracts in 1.2.8, slice C (main window) in 1.2.9, D (detail tabs) in 1.2.10, F (torrent dialogs) in 1.2.11, E (Preferences) in 1.2.12; G is in progress.
+- **Native macOS GUI (D52, D61; planned 2026-11-06_094234_1793954554):** design, conventions and briefs for slices A-L in four waves in [MACOS_GUI.md](docs/MACOS_GUI.md); the GTK bundle ships until slice K. Waves 0 and 1 are merged (1.2.6-1.2.13): the controller, the crate, the main window, detail tabs, Preferences, torrent dialogs and macOS integration, each checked on the VM with its screen locked (mouse, keyboard and context-menu checks wait for an unlocked screen, BACKLOG "macOS").
 
 - **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. The repository is renamed (Pages at `/Rookparcel/`), `main` and the wiki are pushed (2026-11-05); the icon is D60. The site's and the wiki's screenshots show 1.2.4; old release titles read "Rookparcel X (released as PaTorrent)" (2026-11-06). **1.2.5, the first release as Rookparcel, is published (2026-11-06_085947_1793951987)** with its news entry; `update.txt` says `stable=1.2.5`. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux, macOS and the Flatpak (the notes' Flatpak copy steps are untried).
 
@@ -32,7 +32,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**macOS next (2026-11-06_112123_1793960483):** wave 1 of [MACOS_GUI.md](docs/MACOS_GUI.md) (slices C-G in parallel worktrees, at most three on the VM at once), then review and merge each branch with a version bump and a VM run. The VM's screen must be unlocked by the owner for key-window checks.
+**macOS next (2026-11-06_132853_1793968133):** wave 2 of [MACOS_GUI.md](docs/MACOS_GUI.md) (slices H RSS, I search, J profiles and setup, in parallel worktrees), then review and merge each with a version bump and a VM run; an unlocked VM screen (the owner) for the interactive checks of waves 1-2.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

@@ -1438,6 +1438,21 @@ impl Engine {
         }
     }
 
+    /// Removes a torrent's connections marked for closing now rather than at the end of the
+    /// loop, so its peer list records their close before what follows.
+    fn reap_closing_peers(&mut self, id: TorrentId) {
+        let Some(t) = self.torrent_ref(id) else { return };
+        let closing: Vec<usize> = t
+            .peers
+            .iter()
+            .copied()
+            .filter(|&s| self.peers.get(s).is_some_and(|p| p.closing.is_some()))
+            .collect();
+        for slot in closing {
+            self.remove_peer(slot);
+        }
+    }
+
     fn remove_peer(&mut self, slot: usize) {
         let Some(mut p) = self.peers.remove(slot) else { return };
         p.classes.clear(&mut self.peer_classes.pool);
@@ -2429,6 +2444,12 @@ impl Engine {
         if old.contains(TorrentFlags::UPLOAD_MODE) != new.contains(TorrentFlags::UPLOAD_MODE) {
             let upload_mode = new.contains(TorrentFlags::UPLOAD_MODE);
             if !upload_mode {
+                // libtorrent's `disconnect` takes a peer out of its torrent at once
+                // (`remove_peer`), so connections a pause just closed already have the close
+                // time this forgets. Ours get it when they are reaped, after the commands: the
+                // Add dialog's "Start torrent" unchecked (pause, then leave upload mode) left a
+                // magnet's peers waiting out `min_reconnect_time` once it was started.
+                self.reap_closing_peers(id);
                 if let Some(t) = self.torrent(id) {
                     t.peer_list.forget_last_connected();
                 }

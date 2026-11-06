@@ -1,17 +1,18 @@
 //! Loopback swarm tests for the real engine: a seeding session and a downloading session on
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
 //! restart that resumes without rechecking, and one that keeps partly downloaded pieces; magnet
-//! links that fetch their metadata from the seed (BEP 9), a trackerless magnet that finds its
-//! seed through a third session's DHT, a leech that learns about another through the seed's
-//! peer exchange (BEP 11), and two sessions that find each other through local service
-//! discovery (BEP 14); the MSE/PE policy matrix: forced, enabled and disabled encryption on
-//! either side; uTP (BEP 29): the default preference for it, uTP-only sessions, the fall
-//! back to TCP when the other end has no uTP, and encryption over uTP; a peer taking back a
-//! piece with `lt_donthave` (BEP 54); a torrent made by `create_torrent` (with pad files); a
-//! peer banned by smart-ban for a bad block while the seed that sent the rest of the piece is
-//! kept; and the IP and port filters: blocked peers are never connected, refused when they
-//! connect, and dropped when a new filter blocks them, and blocked trackers are not announced
-//! to; and a skipped file kept in the part file across a restart and a recheck, then unskipped.
+//! links that fetch their metadata from the seed (BEP 9), also when stopped and started later; a
+//! trackerless magnet that finds its seed through a third session's DHT, a leech that learns
+//! about another through the seed's peer exchange (BEP 11), and two sessions that find each
+//! other through local service discovery (BEP 14); the MSE/PE policy matrix: forced, enabled
+//! and disabled encryption on either side; uTP (BEP 29): the default preference for it,
+//! uTP-only sessions, the fall back to TCP when the other end has no uTP, and encryption over
+//! uTP; a peer taking back a piece with `lt_donthave` (BEP 54); a torrent made by
+//! `create_torrent` (with pad files); a peer banned by smart-ban for a bad block while the seed
+//! that sent the rest of the piece is kept; and the IP and port filters: blocked peers are never
+//! connected, refused when they connect, and dropped when a new filter blocks them, and blocked
+//! trackers are not announced to; and a skipped file kept in the part file across a restart and
+//! a recheck, then unskipped.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -1002,6 +1003,103 @@ fn saved_peers_are_connected_after_a_restart() {
     assert!(st.flags.contains(TorrentFlags::PAUSED), "{st:?}");
     assert_eq!((st.list_peers, st.num_peers), (1, 0), "{st:?}");
     leech.handle().torrent(st.id).resume();
+    wait(&mut w, 60, "finished", |a| {
+        matches!(a, Alert::TorrentFinished { id: i } if *i == st.id).then_some(())
+    });
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// The Add dialog for a magnet with "Start torrent" unchecked: the magnet joins in upload mode
+/// and fetches its metadata from its `x.pe` peer, then OK stops it (pause, then leave upload
+/// mode: `AddChoice::apply_to_torrent`). Started later, it connects to that peer again at once,
+/// as with libtorrent, where the pause has closed the connection before leaving upload mode
+/// resets every peer's reconnect delay. The close used to be recorded after the reset, so the
+/// peer waited out `min_reconnect_time` (an hour here: for good).
+#[test]
+fn a_magnet_stopped_once_its_metadata_is_in_reconnects_to_its_peer_when_started() {
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-magnet-stopped");
+    let state = temp_dir("state-magnet-stopped");
+    let leech = Session::start(SessionParams {
+        settings: Settings { min_reconnect_time: 3600, ..settings() },
+        state_dir: Some(state.clone()),
+        ..Default::default()
+    })
+    .expect("session starts");
+    let mut w = Watch::new(leech.handle());
+    let uri = format!("magnet:?xt=urn:btih:{}&x.pe=127.0.0.1:{port}", hex(&f.info_hash));
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), dir.to_string_lossy());
+    // `AwaitingMetadata::prepare`: running, outside the queue, writing nothing
+    p.flags = (p.flags | TorrentFlags::UPLOAD_MODE) & !(TorrentFlags::AUTO_MANAGED | TorrentFlags::PAUSED);
+    leech.handle().add_torrent(p);
+    let id = wait(&mut w, 5, "add magnet", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait(&mut w, 30, "metadata", |a| {
+        matches!(a, Alert::MetadataReceived { id: i } if *i == id).then_some(())
+    });
+    let h = leech.handle().torrent(id);
+    h.pause();
+    h.unset_flags(TorrentFlags::UPLOAD_MODE);
+    let st = wait(&mut w, 10, "stopped", |a| {
+        status_of(a, id).filter(|s| s.flags.contains(TorrentFlags::PAUSED) && s.num_peers == 0)
+    });
+    assert!(!st.flags.contains(TorrentFlags::UPLOAD_MODE));
+    assert_eq!((st.list_peers, st.total_done), (1, 0), "{st:?}");
+    // Start (`actions::start`)
+    h.set_flags(TorrentFlags::AUTO_MANAGED);
+    h.resume();
+    wait(&mut w, 30, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// A magnet added stopped keeps its `x.pe` peer, in the session and in the store: restarted,
+/// then started, it fetches its metadata from that peer and downloads.
+#[test]
+fn a_magnet_added_stopped_keeps_its_peer_across_a_restart() {
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-magnet-added-stopped");
+    let state = temp_dir("state-magnet-added-stopped");
+    {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let uri = format!("magnet:?xt=urn:btih:{}&x.pe=127.0.0.1:{port}", hex(&f.info_hash));
+        let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), dir.to_string_lossy());
+        // Preferences' "add stopped" (`GuiOptions::apply_to_new`)
+        p.flags = p.flags & !TorrentFlags::AUTO_MANAGED | TorrentFlags::PAUSED;
+        leech.handle().add_torrent(p);
+        let id = wait(&mut w, 5, "add magnet", |a| match a {
+            Alert::TorrentAdded { id, .. } => Some(*id),
+            _ => None,
+        });
+        let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+        assert_eq!((st.state, st.list_peers, st.num_peers), (TorrentState::DownloadingMetadata, 1, 0));
+        leech.shutdown();
+    }
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let st = first_restored(&mut w);
+    assert!(st.flags.contains(TorrentFlags::PAUSED), "{st:?}");
+    assert_eq!((st.list_peers, st.num_peers), (1, 0), "{st:?}");
+    let h = leech.handle().torrent(st.id);
+    h.set_flags(TorrentFlags::AUTO_MANAGED);
+    h.resume();
+    wait(&mut w, 30, "metadata", |a| {
+        matches!(a, Alert::MetadataReceived { id: i } if *i == st.id).then_some(())
+    });
     wait(&mut w, 60, "finished", |a| {
         matches!(a, Alert::TorrentFinished { id: i } if *i == st.id).then_some(())
     });

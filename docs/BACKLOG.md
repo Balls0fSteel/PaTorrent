@@ -326,26 +326,41 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   on an unlocked screen; macOS 15 shows "Preferences" as "Settings…" by itself.
   From wave 1 (2026-11-06_125550_1793966150): everything that needs a selected row, a mouse or
   the keyboard waits for an unlocked VM screen (context menus, sheets, check boxes, panels,
-  shortcuts, drops; scripts in the slices' scratch folders); the Add dialog's tree lookup is
-  O(n²) for tens of thousands of files in one folder (add a child-at-index hook to `table.rs`).
+  shortcuts, drops; scripts in the slices' scratch folders). The Add dialog's O(n²) tree lookup
+  is gone (1.2.19: `table.rs` keeps a parent's children from `numberOfChildrenOfItem:` for the
+  `child:ofItem:` calls after it); AppKit loads rows lazily, so only full walks paid it
+  (Accessibility over 30,000 files, debug build: 9.5 s, now 8.5 s, nearly all Accessibility's).
   Slice G (2026-11-06_132853_1793968133): `UNUserNotificationCenter` refuses the ad-hoc-signed
   app, so notifications go through the deprecated `NSUserNotificationCenter` until a Developer
   ID signature; logout with a sheet open may still be held up (AppKit's own terminate, not
   `lifecycle::quit`); on the VM a 2-profile transfer with 256 KiB pieces connected but never
   downloaded while 16 KiB pieces worked: reproduce with nox on the VM and Linux to rule out an
-  engine fault.
+  engine fault (1.2.19: 256 KiB pieces download over Windows loopback, a magnet through the Add
+  dialog's flow and a stored `.torrent`; not the cause of (C) below; still unexplained).
   Slice L (2026-11-06_155728_1793977048, validated on the unlocked VM): the interactive checks
-  above passed. Open: (A) completion notifications: the system refuses them for the ad-hoc dev
-  bundle, and `NSUserNotificationCenter` banners are hidden while the app is in front because no
-  delegate answers `userNotificationCenter:shouldPresentNotification:` with YES (`mac/notify.rs`'s
-  doc claims one): add it, check on the owner's Mac with notifications allowed; (B) AppKit's
-  open/save panels write `NSNav*`/`NSOSPLastRootDirectory` keys to
-  `~/Library/Preferences/io.github.balls0fsteel.Rookparcel.plist` even in portable mode (a
-  volatile `NSUserDefaults` domain could keep them out, or document it); (C) engine: a magnet added
-  stopped with an `x.pe` peer and started later never reconnects to it (started at once it
-  downloads), with the 256 KiB note above; (D) a status-item click raises the main window over an
-  open Add dialog. For the owner's real Mac: arm64, Retina, the status icon in light and dark menu
-  bars, Gatekeeper's Open Anyway on a downloaded dmg, Hide Others, a drop on the Dock icon.
+  above passed. Its four open items were worked in 1.2.19 (2026-11-06_162621_1793978781):
+  (A) `RPAppDelegate` is now also `NSUserNotificationCenter`'s delegate and answers
+  `shouldPresentNotification:` with YES. **Unchecked:** on the VM macOS shows none of the dev
+  app's notifications, in front or behind (`com.apple.ncprefs` holds the bundle id with `auth` 6,
+  probably a denial from an earlier run; `UNUserNotificationCenter` says "not allowed"), so the
+  delegate was never asked. The release dmg is ad-hoc signed as well: the owner's Mac may refuse
+  them the same way. Check there with Rookparcel allowed in System Settings > Notifications, a
+  download finishing with the app in front and behind. (B) Done: a portable run copies the
+  `io.github.balls0fsteel.Rookparcel` defaults domain at the start and puts it back at Quit
+  (`mac/defaults.rs`). On the VM the panel wrote `NSNav*`, `NSOSPLastRootDirectory` and two
+  window frames during the run, and the domain was identical afterwards. Where there was no plist,
+  cfprefsd leaves an empty one (42 bytes), and a crash leaves the run's keys. (C) Fixed in the
+  engine: the stop came from the Add dialog ("Start torrent" unchecked: pause, then leave the
+  metadata's upload mode), whose closed connections were reaped after upload mode had reset the
+  peers' reconnect delay, so Start waited `min_reconnect_time` (60 s); a magnet added stopped
+  keeps its `x.pe` peer across a restart (both in `tests/swarm.rs`). Not rechecked in the Mac GUI.
+  A plain Stop and Start within 60 s still waits that long, as libtorrent 2.0.11 does.
+  (D) Done: `lifecycle::show_window` keeps our windows that were in front of the main one in front
+  (all of them while it was hidden), the front one with the keyboard. Checked with real clicks on
+  the status item, 1.2.17 against 1.2.19: with Finder in front, with the main window hidden, and
+  both. The plain show/hide toggle is unchanged. For the owner's real Mac: arm64, Retina, the
+  status icon in light and dark menu bars, Gatekeeper's Open Anyway on a downloaded dmg, Hide
+  Others, a drop on the Dock icon, notifications (A).
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

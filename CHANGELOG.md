@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_190632_1793988392: v1.2.19 tagged; the first native macOS release run built the draft
+
+- **Fixed (release workflow):** the first trial run (Actions > Release on `main`) failed a universal app: `lipo -archs` prints `x86_64 arm64`, and the check's pattern `*" x86_64 "*" arm64 "*` needs a space on both sides of each name, which the two share. Each architecture is now looked for on its own. Only the workflow changed, so no version bump.
+- Before pushing: the workspace clippy with Rust 1.99 on the Mac VM (this PC has 1.90; 1.99 broke CI at 1.2.5), clean. On `867f2eda`: CI, FreeBSD and a second trial green (Fuzz on `c1c26db2`, the same code). `v1.2.19` tagged there; the Release run made the draft with all 14 files and `SHA256SUMS`. The dmg is 7.4 MB (1.2.5's GTK one: 16.3 MB).
+- **Mac app, tried:** on GitHub's Apple silicon runner the arm64 half ran 20 s and drew the Setup Guide, the x86_64 half answered `--version` under Rosetta. On the Intel VM the draft's dmg (its SHA-256 as listed) mounted, the ad-hoc signature verified, universal, `LSMinimumSystemVersion` 11.0, the plain version 1.2.19; a portable start reached the main window (21 DHT nodes, 50 MB), Quit took 204 ms and the defaults were put back. The live site still shows 1.2.5's macOS text, `update.txt` `stable=1.2.5`. **Not tried:** a real Mac (the owner's), Windows and Linux files by hand (the release job installs and uninstalls the setup itself; their only change since 1.2.5 is the engine fix).
+
 ## 2026-11-06_180754_1793984874: Release 1.2.19 prepared, the first with the native Mac app
 
 - [Release notes](docs/releases/1.2.19.md) for everything since 1.2.5 (1.2.6-1.2.18 were never released): the native Mac app (universal, macOS 11), Preferences applied at once, the menu bar icon and the rest of the macOS integration, the takeover of the GTK app's `gtk` folder, portable mode's defaults, and the engine fix for a stopped magnet. Known limitations: tried by hand only on the Intel VM (macOS 15), notifications never seen, Hibernate greyed, no way back to 1.2.5's folder. The Flatpak metainfo has the `<release>`.

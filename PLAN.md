@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_180754_1793984874
+Last updated: 2026-11-06_190632_1793988392
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -27,13 +27,13 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **Releases:** 1.0.1 (D19, D34), 1.1.0 (D35), 1.1.17, 1.1.40 ([notes](docs/releases/)); hand checks are below. **1.2.0** (published 2026-11-05, [notes](docs/releases/1.2.0.md)) ships profiles (D42), D50-D55 and the bug-hunt/backlog fixes.
 - **Benchmarks:** [2026-10-27 results](docs/BENCHMARKS.md), `tools/bench`: 10,000 torrents after restart use 60 MB (qBittorrent 612 MB); one-peer download 3,592 MiB/s, 1.04 CPU s/GiB.
-- Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check); the native macOS jobs have not run yet.
+- CI, FreeBSD, Fuzz and the Release run (with the native macOS job) were green for `v1.2.19` (recorded, not a live check).
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
 - The app icon is the Postal Rook (D60): drawn marks below 48 px, the generated stamp from 48 px (`assets/rookparcel-icons`).
 
 ## Next steps
 
-**Release 1.2.19, the first native Mac app (2026-11-06_180754_1793984874):** [notes](docs/releases/1.2.19.md) ready. Push `main`, tag `v1.2.19` once CI is green, watch the first native macOS release run. The owner tries the draft's `Rookparcel-1.2.19-macos.dmg` on a real Mac (arm64, Retina, the status icon in light and dark, Open Anyway, notifications in front and behind), updates the notes' "tried by hand" line, then publishes. After publishing: push the local branch `site-1.2.19` (native-app site text, news entry; set its date) and `docs/wiki` to the wiki.
+**Release 1.2.19, the first native Mac app (2026-11-06_190632_1793988392):** `v1.2.19` is tagged and its draft built ([notes](docs/releases/1.2.19.md)); the dmg ran on GitHub's arm64 runner and the Intel VM. The owner tries it on a real Mac (arm64, Retina, the status icon in light and dark, Open Anyway, notifications in front and behind), updates the notes' "tried by hand" line if it changes, then publishes (`gh release edit v1.2.19 --draft=false`). After publishing: push the local branch `site-1.2.19` (native-app site text, news entry; set its date) and `docs/wiki` to the wiki.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

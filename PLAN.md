@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_162621_1793978781
+Last updated: 2026-11-06_180754_1793984874
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -25,7 +25,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **Artwork (2026-11-05):** the Postal Rook won ([concepts](docs/art/rookparcel-candidates-2026-11-05/README.md), [small marks](docs/art/postal-rook-small-2026-11-05/README.md)); the [96 UI icon studies](docs/art/rookparcel-ui-2026-11-05/README.md) await selection and 16/20/24 px redraws.
 
-- **Releases:** 1.0.1 (D19, D34) and 1.1.0 (D35) shipped; remaining hand checks are below. 1.1.17/1.1.40 history is in [release notes](docs/releases/). **1.2.0** (published 2026-11-05, [notes](docs/releases/1.2.0.md)) ships profiles (D42), D50-D55 and the bug-hunt/backlog fixes.
+- **Releases:** 1.0.1 (D19, D34), 1.1.0 (D35), 1.1.17, 1.1.40 ([notes](docs/releases/)); hand checks are below. **1.2.0** (published 2026-11-05, [notes](docs/releases/1.2.0.md)) ships profiles (D42), D50-D55 and the bug-hunt/backlog fixes.
 - **Benchmarks:** [2026-10-27 results](docs/BENCHMARKS.md), `tools/bench`: 10,000 torrents after restart use 60 MB (qBittorrent 612 MB); one-peer download 3,592 MiB/s, 1.04 CPU s/GiB.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check); the native macOS jobs have not run yet.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**macOS next (2026-11-06_162621_1793978781):** 1.2.18-1.2.19 are merged, not pushed. The first native release: push `main` with its tag (the site's new macOS text goes live with that push), watch the release workflow's first macOS run, try the draft's `Rookparcel-<version>-macos.dmg` on a real Mac (arm64, Retina, the status icon in light and dark, Gatekeeper's Open Anyway, notifications in front and behind), then publish.
+**Release 1.2.19, the first native Mac app (2026-11-06_180754_1793984874):** [notes](docs/releases/1.2.19.md) ready. Push `main`, tag `v1.2.19` once CI is green, watch the first native macOS release run. The owner tries the draft's `Rookparcel-1.2.19-macos.dmg` on a real Mac (arm64, Retina, the status icon in light and dark, Open Anyway, notifications in front and behind), updates the notes' "tried by hand" line, then publishes. After publishing: push the local branch `site-1.2.19` (native-app site text, news entry; set its date) and `docs/wiki` to the wiki.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
@@ -47,7 +47,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 **Owner notes (2026-10-30_192440_1793384680):** all done (D44, D45, D47); hand checks in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website).
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8; re-test on a fresh Win32 build ([BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101)).
-1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `RP` with the client-ID lists (item 14). `update.txt` serves `stable=1.1.40`.
+1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `RP` with the client-ID lists (item 14).
 2. Rerun `tools/bench` before each release and on bare metal when one is free ([BACKLOG](docs/BACKLOG.md#validation-and-development-environment)).
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.

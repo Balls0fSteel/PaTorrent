@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-06_160049_1793977249
+Last updated: 2026-11-06_180754_1793984874
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -65,3 +65,4 @@ Keep archives as plain Markdown so Git diffs, repository browsing and targeted s
 | [Changelog, 2026-11-06, the 1.2.5 release](CHANGELOG-2026-11-06-v1.2.5-release-2026-11-06_132853_1793968133.md) | `2026-11-06_082258_1793949778` through `2026-11-06_092025_1793953225` | 5 complete entries moved on 2026-11-06_132853_1793968133: the 1.2.4 website screenshots, version 1.2.5 and its release (CI fix, wiki screenshots, tag, publication) and the favicon hash, including validation. |
 | [Changelog, 2026-11-06, the macOS GUI's plan and wave 0 (v1.2.6-v1.2.8)](CHANGELOG-2026-11-06-macos-wave0-v1.2.6-v1.2.8-2026-11-06_142501_1793971501.md) | `2026-11-06_094234_1793954554` through `2026-11-06_112615_1793960775` | 4 complete entries moved on 2026-11-06_142501_1793971501: the native macOS GUI's plan (D61), the shared controller frontend::app (1.2.6), the rookparcel-mac foundation (1.2.7) and the wave 1 contracts (1.2.8), including validation. |
 | [Changelog, 2026-11-06, the macOS GUI's wave 1 (v1.2.9-v1.2.11)](CHANGELOG-2026-11-06-macos-wave1-v1.2.9-v1.2.11-2026-11-06_160049_1793977249.md) | `2026-11-06_122817_1793964497` through `2026-11-06_125550_1793966150` | 3 complete entries moved on 2026-11-06_160049_1793977249: the Mac main window (1.2.9), detail tabs (1.2.10) and torrent dialogs (1.2.11), with their merge fixes and validation. |
+| [Changelog, 2026-11-06, the macOS GUI's wave 1 (v1.2.12-v1.2.13)](CHANGELOG-2026-11-06-macos-wave1-v1.2.12-v1.2.13-2026-11-06_180754_1793984874.md) | `2026-11-06_130647_1793966807` through `2026-11-06_132853_1793968133` | 2 complete entries moved on 2026-11-06_180754_1793984874: Mac Preferences with instant apply (1.2.12) and the macOS integration (1.2.13), with their merge fixes and validation. |

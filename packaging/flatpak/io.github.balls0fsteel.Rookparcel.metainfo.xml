@@ -70,6 +70,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.2.19" date="2026-11-06" type="stable">
+      <description>
+        <p>A magnet stopped from its Add dialog now reconnects to its peer at once when it is started, instead of a minute later. The rest of this release is the new native macOS app; the Linux GUI is otherwise unchanged.</p>
+      </description>
+    </release>
     <release version="1.2.5" date="2026-11-06" type="stable">
       <description>
         <p>PaTorrent is now Rookparcel, with a new icon, the Postal Rook. Settings, torrents, profiles and portable folders from PaTorrent are taken over at the first start. A Web UI login refused after a ban is now answered as banned.</p>

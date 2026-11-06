@@ -57,7 +57,7 @@
         <li><strong>Windows 10 or 11</strong> The installer sets Rookparcel up and later upgrades it in place (from 1.0.1 on). The portable zip installs nothing: unzip it and run.</li>
         <li><strong>Linux desktop</strong> The AppImage carries its libraries and needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, Debian 13 or later). Prefer Flatpak? Take the bundle. The plain binaries use your system's GTK 4 and OpenSSL 3.</li>
         <li><strong>Linux server</strong> The <code>rookparcel-nox</code> AppImage, or <code>rookparcel-nox</code> from the plain binaries, with its <a href="#headless">Web UI</a>.</li>
-        <li><strong>Mac</strong> The disk image, for Apple silicon and Intel Macs alike. Servers can use the headless <code>rookparcel-nox</code>.</li>
+        <li><strong>Mac</strong> Apple silicon: the disk image. Intel Macs get the headless <code>rookparcel-nox</code> only, for now.</li>
       </ul>
       <p><code>x64</code> and <code>x86_64</code> are Intel and AMD processors; <code>aarch64</code> and <code>arm64</code> are 64-bit ARM.</p>
     </section>
@@ -89,15 +89,14 @@
 
     <section class="platform" id="macos" aria-labelledby="macos-h">
       <h2 id="macos-h">macOS <span class="yours" data-os="macos" hidden>Your system</span></h2>
-      <p class="req">The GUI: Apple silicon and Intel, macOS 11 Big Sur or newer. The daemon: Apple silicon (macOS 11 or newer) and Intel (macOS 10.14 or newer).</p>
+      <p class="req">The GUI: Apple silicon, macOS 15 or newer. The daemon: Apple silicon (macOS 11 or newer) and Intel (macOS 10.14 or newer).</p>
       <!-- build:files-macos -->
       <p class="note">The file list is filled in when the site is built. Every file is on the <a href="https://github.com/Balls0fSteel/Rookparcel/releases">releases page on GitHub</a>.</p>
       <!-- /build:files-macos -->
       <h3 id="gatekeeper">Gatekeeper</h3>
       <p><code>Rookparcel.app</code> is ad-hoc signed and not notarised, so Gatekeeper refuses it the first time (“cannot be opened because the developer cannot be verified”). Right-click (or Control-click) the app, choose <strong>Open</strong>, then <strong>Open</strong> again. Or remove the quarantine flag after copying it to Applications:</p>
       <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/Rookparcel.app</code></pre>
-      <p>If macOS offers no Open button, open <strong>System Settings &gt; Privacy &amp; Security</strong> and click <strong>Open Anyway</strong>.</p>
-      <p><code>Rookparcel.app</code> is a native macOS program, one file for Apple silicon and Intel. Settings and torrents are in <code>~/Library/Application Support/Rookparcel/mac</code>. Coming from the older GTK version of the app, its <code>gtk</code> folder there becomes <code>mac</code> at the first start, so settings and torrents carry over.</p>
+      <p>The GUI is for Apple silicon only for now; on an Intel Mac, use <code>rookparcel-nox</code> and its Web UI. Settings and torrents are in <code>~/Library/Application Support/Rookparcel/gtk</code>.</p>
     </section>
 
     <!-- build:files-other --><!-- /build:files-other -->

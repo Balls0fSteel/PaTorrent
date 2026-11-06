@@ -411,6 +411,7 @@ ProfileBadName="{name}" не може да бъде име на профил. И
 ProfileCreate=Профилът "{name}" все още не съществува. Да бъде ли създаден?\n\nТой започва празен, като нова инсталация, в:\n{folder}
 MacTranslocated=macOS изпълнява Rookparcel от временно копие, затова rookparcel.ini до Rookparcel.app не се вижда. Преместете Rookparcel.app в желаната папка (или в Applications) с Finder и го стартирайте отново.
 EndSessionSaving=Записване на списъка с торенти и напредъка...
+MacAssocKept=macOS запазва Rookparcel като програма за файловете .torrent и връзките magnet:, докато не бъде избрана друга: за файловете .torrent във Finder (Покажи информация, Отвори с, Промени всички), за връзките magnet: в настройките на другата програма.
 ExitTitle=Rookparcel се затваря
 ExitElapsed=Затваряне от {time}
 ExitStopping=Спиране на торентите...

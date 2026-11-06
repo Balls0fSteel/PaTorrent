@@ -411,6 +411,7 @@ ProfileBadName="{name}" אינו יכול להיות שם פרופיל. שם פ�
 ProfileCreate=הפרופיל "{name}" עדיין לא קיים. ליצור אותו?\n\nהוא מתחיל ריק, כמו התקנה חדשה, בתיקייה:\n{folder}
 MacTranslocated=macOS מריץ את Rookparcel מעותק זמני, ולכן קובץ rookparcel.ini שליד Rookparcel.app אינו נראה. העבירו את Rookparcel.app בעזרת Finder לתיקייה הרצויה (או ליישומים) והפעילו אותו שוב.
 EndSessionSaving=שומר את רשימת הטורנטים וההתקדמות...
+MacAssocKept=macOS משאיר את Rookparcel כתוכנה לקובצי .torrent ולקישורי magnet: עד שתיבחר תוכנה אחרת: לקובצי .torrent ב-Finder (קבל מידע, פתח באמצעות, שנה הכול), לקישורי magnet: בהגדרות התוכנה האחרת.
 ExitTitle=Rookparcel נסגר
 ExitElapsed=נסגר כבר {time}
 ExitStopping=עוצר את הטורנטים...

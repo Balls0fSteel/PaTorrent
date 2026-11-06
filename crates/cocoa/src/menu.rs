@@ -456,6 +456,10 @@ mod tests {
                     | Command::Dialog(_)
                     // the Preferences window's controls (slice E)
                     | Command::Pref(_)
+                    // slice G: the status item's button, the closing window's and the countdown's
+                    | Command::StatusItem
+                    | Command::QuitNow
+                    | Command::CancelShutdown
             )
         };
         for c in crate::commands::ALL {

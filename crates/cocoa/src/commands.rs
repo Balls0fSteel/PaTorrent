@@ -106,6 +106,14 @@ pub enum Command {
     // slice E
     /// A control of the Preferences window: an index into its controls (`prefs`).
     Pref(u16),
+    // slice G
+    /// The status item's button: a left click shows or hides the window, a right click or a
+    /// Control-click opens its menu.
+    StatusItem,
+    /// The closing window's Quit Now (D47).
+    QuitNow,
+    /// The Auto Shutdown countdown's Cancel.
+    CancelShutdown,
 }
 
 /// The Files tab's commands (slice D), apart from [`ALL`], whose menus they are not in.
@@ -119,7 +127,7 @@ pub const FILES: [Command; 6] = [
 ];
 
 /// Every command: those without a value, then those with one (at index 0).
-pub const ALL: [Command; 54] = [
+pub const ALL: [Command; 57] = [
     Command::About,
     Command::CheckUpdates,
     Command::Preferences,
@@ -166,6 +174,9 @@ pub const ALL: [Command; 54] = [
     Command::SearchNames,
     Command::SearchAllSources,
     Command::ManageSources,
+    Command::StatusItem,
+    Command::QuitNow,
+    Command::CancelShutdown,
     Command::Profile(0),
     Command::DownLimit(0),
     Command::UpLimit(0),
@@ -250,6 +261,10 @@ impl Command {
             Dialog(i) => (59, i),
             // slice E (kind 60: 100-101 are slice C's)
             Pref(i) => (60, i),
+            // slice G (kinds 61-63: 53-60 are slices D, F and E's)
+            StatusItem => (61, 0),
+            QuitNow => (62, 0),
+            CancelShutdown => (63, 0),
         }
     }
 
@@ -323,6 +338,10 @@ impl Command {
             59 => Some(Dialog(v)),
             // slice E
             60 => Some(Pref(v)),
+            // slice G
+            61 => plain(StatusItem),
+            62 => plain(QuitNow),
+            63 => plain(CancelShutdown),
             _ => None,
         }
     }
@@ -388,7 +407,7 @@ mod tests {
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
-        assert_eq!(Command::from_tag(61 << SHIFT), None);
+        assert_eq!(Command::from_tag(64 << SHIFT), None);
     }
 
     #[test]

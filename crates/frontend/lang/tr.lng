@@ -411,6 +411,7 @@ ProfileBadName="{name}" bir profil adı olamaz. Profil adı 1 ile 32 karakter ar
 ProfileCreate="{name}" profili henüz yok. Oluşturulsun mu?\n\nYeni bir kurulum gibi boş başlar, şurada:\n{folder}
 MacTranslocated=macOS, Rookparcel'i geçici bir kopyadan çalıştırıyor; bu yüzden Rookparcel.app'in yanındaki rookparcel.ini görülmüyor. Rookparcel.app'i Finder ile istediğiniz klasöre (veya Uygulamalar'a) taşıyıp yeniden başlatın.
 EndSessionSaving=Torrent listesi ve ilerleme kaydediliyor...
+MacAssocKept=macOS, başka bir program seçilene kadar Rookparcel'i .torrent dosyalarının ve magnet: bağlantılarının programı olarak tutar: .torrent dosyaları için Finder'da (Bilgi Al, Birlikte Aç, Tümünü Değiştir), magnet: bağlantıları için diğer programın ayarlarında.
 ExitTitle=Rookparcel kapanıyor
 ExitElapsed={time} süredir kapanıyor
 ExitStopping=Torrentler durduruluyor...

@@ -135,7 +135,19 @@ define_class!(
 
     unsafe impl NSObjectProtocol for RPWindowDelegate {}
 
-    unsafe impl NSWindowDelegate for RPWindowDelegate {}
+    unsafe impl NSWindowDelegate for RPWindowDelegate {
+        /// Slice G: close and minimize into the status item (`ui.close_to_tray`,
+        /// `ui.minimize_to_tray`).
+        #[unsafe(method(windowShouldClose:))]
+        fn should_close(&self, _sender: &NSWindow) -> bool {
+            crate::mac::lifecycle::window_should_close()
+        }
+
+        #[unsafe(method(windowDidMiniaturize:))]
+        fn did_miniaturize(&self, _n: &objc2_foundation::NSNotification) {
+            crate::mac::lifecycle::did_miniaturize();
+        }
+    }
 
     unsafe impl NSToolbarDelegate for RPWindowDelegate {
         #[unsafe(method_id(toolbar:itemForItemIdentifier:willBeInsertedIntoToolbar:))]

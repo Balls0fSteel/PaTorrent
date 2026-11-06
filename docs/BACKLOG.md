@@ -328,6 +328,12 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   the keyboard waits for an unlocked VM screen (context menus, sheets, check boxes, panels,
   shortcuts, drops; scripts in the slices' scratch folders); the Add dialog's tree lookup is
   O(n²) for tens of thousands of files in one folder (add a child-at-index hook to `table.rs`).
+  Slice G (2026-11-06_132853_1793968133): `UNUserNotificationCenter` refuses the ad-hoc-signed
+  app, so notifications go through the deprecated `NSUserNotificationCenter` until a Developer
+  ID signature; logout with a sheet open may still be held up (AppKit's own terminate, not
+  `lifecycle::quit`); on the VM a 2-profile transfer with 256 KiB pieces connected but never
+  downloaded while 16 KiB pieces worked: reproduce with nox on the VM and Linux to rule out an
+  engine fault.
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

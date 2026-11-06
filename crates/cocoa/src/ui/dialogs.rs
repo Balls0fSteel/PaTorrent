@@ -55,8 +55,10 @@ pub fn make_alert(
 }
 
 /// The index of the button an alert's response stands for.
+/// A sheet ended from outside (`endSheet:returnCode:` with `NSModalResponseAbort`, as Quit does
+/// to the sheets that would hold it up) answers no button: `usize::MAX`.
 fn button_of(r: NSModalResponse) -> usize {
-    usize::try_from(r - NSAlertFirstButtonReturn).unwrap_or(0)
+    usize::try_from(r - NSAlertFirstButtonReturn).unwrap_or(usize::MAX)
 }
 
 /// Shows an application-modal alert and returns the index of the button pressed.

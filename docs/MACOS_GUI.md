@@ -283,6 +283,7 @@ Slice C owns the rest of `app.rs` and `window.rs`: keep `apply`'s one-line-per-s
 
 - **Own:** `.github/workflows/{release,ci,macos-gate8}.yml`, `.github/scripts/macos_bundle.py`, `.github/scripts/macos_launcher.c` (removed), `crates/gtk` (macOS code removed: `tray_macos.rs`, `macos.rs`'s `sys`, `HANDLES_OPEN`, macOS paths, the translocation notice; gtk4 under `cfg(all(unix, not(target_os = "macos")))`), `site/build.py` and the site pages, `README.md`, `docs/wiki/`, `docs/RELEASING.md`, `THIRD-PARTY-NOTICES.md`.
 - **Done when:** the release workflow builds both architectures, `lipo`s them, bundles, signs ad hoc, starts the app on the runner with a screenshot and makes `Rookparcel-<version>-macos.dmg`; CI no longer installs GTK on macOS; `macos-gate8.yml` checks the native app (and no longer greps for `patorrent-gtk`); `site/build.py` accepts the new dmg name and the home page offers it to every Mac; "macOS 15" becomes "macOS 11" where it describes the GUI; the wiki's install and shortcut pages describe the native app. Merged only after slice L passes.
+- **Also (from wave 1):** `Info.plist` gets `NSAppleEventsUsageDescription` (Auto Shutdown's Sleep and Shut Down are Apple events to loginwindow, which TCC may ask about); `UNUserNotificationCenter` refuses the ad-hoc-signed app, so notifications use the deprecated `NSUserNotificationCenter` until the app is signed with a Developer ID (BACKLOG).
 
 #### L. Validation
 

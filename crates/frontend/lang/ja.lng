@@ -411,6 +411,7 @@ ProfileBadName="{name}" はプロファイル名に使用できません。プ�
 ProfileCreate=プロファイル "{name}" はまだありません。作成しますか?\n\n新しくインストールしたときと同じく空の状態で、次の場所に作成されます:\n{folder}
 MacTranslocated=macOS は Rookparcel を一時的なコピーから実行しているため、Rookparcel.app の横にある rookparcel.ini が認識されません。Finder で Rookparcel.app を目的のフォルダー (またはアプリケーション) に移動してから、もう一度起動してください。
 EndSessionSaving=トレントの一覧と進行状況を保存しています...
+MacAssocKept=macOS は、別のプログラムが選ばれるまで Rookparcel を .torrent ファイルと magnet: リンクのプログラムのままにします。.torrent ファイルは Finder で (情報を見る、このアプリケーションで開く、すべてを変更)、magnet: リンクはもう一方のプログラムの設定で選んでください。
 ExitTitle=Rookparcel を終了しています
 ExitElapsed=終了処理中 ({time} 経過)
 ExitStopping=トレントを停止しています...

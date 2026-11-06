@@ -19,10 +19,16 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use objc2::rc::Retained;
-use objc2::runtime::{NSObject, NSObjectProtocol};
+use objc2::runtime::{NSObject, NSObjectProtocol, ProtocolObject};
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
-use objc2_app_kit::{NSApplication, NSApplicationDelegate, NSMenu, NSSplitViewItem};
+use objc2_app_kit::{
+    NSApplication, NSApplicationDelegate, NSApplicationTerminateReply, NSMenu, NSSplitViewItem,
+};
 use objc2_foundation::{NSArray, NSNotification, NSRunLoop, NSRunLoopCommonModes, NSString, NSTimer, NSURL};
+use objc2_user_notifications::{
+    UNNotification, UNNotificationPresentationOptions, UNUserNotificationCenter,
+    UNUserNotificationCenterDelegate,
+};
 use rookparcel_core::util::lockfile::Lock;
 use rookparcel_core::{MockConfig, Session, SessionParams, TorrentId};
 use rookparcel_frontend::app::{self as fapp, Core, Events, Layout, Start, Wakeup};
@@ -103,22 +109,35 @@ define_class!(
         #[unsafe(method(applicationDidFinishLaunching:))]
         fn did_finish_launching(&self, _n: &NSNotification) {
             if let Some(args) = self.ivars().borrow_mut().take() {
+                // slice G: completed-download notifications show while Rookparcel is in front
+                crate::mac::notify::set_delegate(ProtocolObject::from_ref(self));
                 start(MainThreadMarker::from(self), args);
             }
         }
 
+        /// Slice G: Quit and logout wait for the engine behind the closing window (D47).
+        #[unsafe(method(applicationShouldTerminate:))]
+        fn should_terminate(&self, _app: &NSApplication) -> NSApplicationTerminateReply {
+            crate::mac::lifecycle::should_terminate(MainThreadMarker::from(self))
+        }
+
+        #[unsafe(method(applicationShouldTerminateAfterLastWindowClosed:))]
+        fn after_last_window(&self, _app: &NSApplication) -> bool {
+            crate::mac::lifecycle::after_last_window_closed()
+        }
+
         #[unsafe(method(applicationWillTerminate:))]
         fn will_terminate(&self, _n: &NSNotification) {
-            shutdown();
+            // (after `applicationShouldTerminate:`'s wait there is nothing left to stop)
+            if let Some(exit) = shutdown() {
+                exit.wait();
+            }
         }
 
         /// A click on the Dock icon with no window shown brings the main window back.
         #[unsafe(method(applicationShouldHandleReopen:hasVisibleWindows:))]
         fn reopen(&self, _app: &NSApplication, visible: bool) -> bool {
-            if !visible {
-                show_window();
-            }
-            true
+            crate::mac::dock::reopen(visible)
         }
 
         #[unsafe(method_id(applicationDockMenu:))]
@@ -131,6 +150,19 @@ define_class!(
         fn open_urls(&self, _app: &NSApplication, urls: &NSArray<NSURL>) {
             let urls: Vec<String> = urls.iter().filter_map(|u| u.absoluteString().map(|s| s.to_string())).collect();
             crate::mac::open::open(urls);
+        }
+    }
+
+    // slice G: notifications also while Rookparcel is the active application
+    unsafe impl UNUserNotificationCenterDelegate for RPAppDelegate {
+        #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
+        fn will_present(
+            &self,
+            _center: &UNUserNotificationCenter,
+            _n: &UNNotification,
+            handler: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
+        ) {
+            handler.call((crate::mac::notify::present_options(),));
         }
     }
 );
@@ -164,11 +196,19 @@ fn start(mtm: MainThreadMarker, args: Args) {
     let session = match args.demo {
         Some(n) => Session::start_mock(
             opts.settings.clone(),
-            MockConfig { initial_torrents: n, active_fraction: 0.02, ..MockConfig::default() },
+            MockConfig {
+                initial_torrents: n,
+                active_fraction: 0.02,
+                // slice G: to look at the closing window (D47)
+                slow_exit: crate::mac::lifecycle::demo_slow_exit(),
+                ..MockConfig::default()
+            },
         ),
         None => {
             match fapp::lock_library(&dirs.data) {
                 Ok(lock) => LOCK.with(|k| *k.borrow_mut() = lock),
+                // slice G: a Rookparcel of this profile runs: it gets what this start opens
+                Err(_) if crate::mac::open::forward_to_running(&dirs.data, mtm) => return,
                 Err((heading, text)) => return give_up(&heading, &text, mtm),
             }
             let p = profile::current();
@@ -230,6 +270,9 @@ fn start(mtm: MainThreadMarker, args: Args) {
         NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes);
     }
     crate::snapshots::start(mtm);
+    // slice G: the status item, the translocation notice, --minimized, the association check,
+    // what was opened before
+    crate::mac::started(mtm);
     log_line(&format!(
         "{} started{}",
         profile::name_build(),
@@ -301,7 +344,8 @@ pub fn apply(ev: Option<Events>) {
     crate::mac::power::on_events(ev.auto_shutdown, ev.power, ev.power_after_exit);
     crate::mac::update::on_events(ev.update, ev.update_notice);
     if ev.quit {
-        NSApplication::sharedApplication(mtm).terminate(None);
+        // slice G: Auto Shutdown's Quit, as the menu's
+        crate::mac::lifecycle::quit();
     }
 }
 
@@ -345,11 +389,14 @@ fn show_window() {
 /// Runs a command: the one place every menu item, toolbar button, Dock and status item entry
 /// comes to (convention 2).
 pub fn run(cmd: Command) {
-    let Some(mtm) = MainThreadMarker::new() else { return };
+    if MainThreadMarker::new().is_none() {
+        return;
+    }
     crate::snapshots::log_command(cmd);
     use Command::*;
     match cmd {
-        Quit => NSApplication::sharedApplication(mtm).terminate(None),
+        // slice G: sheets that would hold the quit up go first
+        Quit => crate::mac::lifecycle::quit(),
         Find => {
             if crate::detail::find() {
                 return;
@@ -390,10 +437,9 @@ pub fn run(cmd: Command) {
                 u.set_status_visible(!u.status_visible());
             }
         }
-        ToggleWindow => match ui() {
-            Some(u) if u.window.isVisible() => crate::mac::lifecycle::toggle_window(),
-            _ => show_window(),
-        },
+        ToggleWindow => crate::mac::lifecycle::toggle_window(),
+        // slice G: the status item's button, Quit Now, the countdown's Cancel
+        StatusItem | QuitNow | CancelShutdown => crate::mac::run(cmd),
         About => crate::mac::about::about(),
         CheckUpdates => crate::mac::update::check(),
         Website => crate::mac::about::website(),
@@ -437,6 +483,10 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
     if let Some(s) = crate::detail::state(cmd) {
         return s;
     }
+    // slice G: the current mode checked, Hibernate greyed
+    if let Command::AutoShutdown(i) = cmd {
+        return crate::mac::power::state(i);
+    }
     if cmd.needs_selection() {
         return crate::torrent_menu::state(cmd);
     }
@@ -446,7 +496,6 @@ pub fn state(cmd: Command) -> (bool, Option<bool>) {
             Some(me)
         }
         Command::SearchNames => Some(crate::search::filters_names()),
-        Command::AutoShutdown(i) => Some(i == 0),
         _ => None,
     };
     let enabled = match cmd {
@@ -476,9 +525,13 @@ pub fn title(cmd: Command) -> Option<String> {
     Some(ui::text(t))
 }
 
-/// Before the process ends: `Core::shutdown` saves the prefs and `rss.dat` and stops the engine;
-/// this waits for it (slice G puts the closing window, D47, in front of this).
-pub fn shutdown() {
+/// Quit (`applicationShouldTerminate:`, `mac::lifecycle`): `Core::shutdown` saves the prefs and
+/// `rss.dat` and starts stopping the engine; the closing window (D47) follows the [`Exit`]
+/// until it is done. `None` before the start or once called. The Preferences field being typed
+/// in and the window's layout go into the prefs first.
+///
+/// [`Exit`]: rookparcel_core::Exit
+pub fn shutdown() -> Option<rookparcel_core::Exit> {
     // a Preferences field being typed in is applied first
     crate::prefs::before_quit();
     // the window's layout goes into the prefs `Core::shutdown` saves
@@ -486,7 +539,5 @@ pub fn shutdown() {
         with_core(|c| layout.store(c.prefs_mut()));
     }
     UI.with(|u| u.borrow_mut().take());
-    if let Some(Some(exit)) = with_core(|c| c.shutdown()) {
-        exit.wait();
-    }
+    with_core(|c| c.shutdown()).flatten()
 }

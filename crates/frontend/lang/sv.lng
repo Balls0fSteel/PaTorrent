@@ -411,6 +411,7 @@ ProfileBadName="{name}" kan inte vara ett profilnamn. Ett profilnamn har 1 till 
 ProfileCreate=Profilen "{name}" finns inte ännu. Vill du skapa den?\n\nDen börjar tom, som en ny installation, i:\n{folder}
 MacTranslocated=macOS kör Rookparcel från en tillfällig kopia, så en rookparcel.ini bredvid Rookparcel.app syns inte. Flytta Rookparcel.app med Finder till önskad mapp (eller till Program) och starta den igen.
 EndSessionSaving=Sparar torrentlistan och förloppet...
+MacAssocKept=macOS behåller Rookparcel som programmet för .torrent-filer och magnet:-länkar tills ett annat väljs: för .torrent-filer i Finder (Visa info, Öppna med, Ändra alla), för magnet:-länkar i det andra programmets inställningar.
 ExitTitle=Rookparcel avslutas
 ExitElapsed=Avslutningen har pågått i {time}
 ExitStopping=Stoppar torrenterna...

@@ -8,6 +8,11 @@
 //! builds one and [`exec_args`] reads its `Exec` line back, so a box is checked only when the
 //! entry starts this very program (a moved AppImage shows unchecked until it registers again).
 //! Written from the Desktop Entry Specification 1.5 ("The Exec key", "Possible value types").
+//!
+//! [`mac`] is macOS's part: the LaunchAgent property list both Mac GUIs write, and what an
+//! opened URL names.
+
+pub mod mac;
 
 use crate::tr;
 

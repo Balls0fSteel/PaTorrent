@@ -163,6 +163,7 @@ objc2-foundation = { workspace = true, features = [
     "NSTimer",
     "NSURL",
     "NSUserDefaults",
+    "NSUserNotification",
     "NSValue",
     "alloc",
     "block2",

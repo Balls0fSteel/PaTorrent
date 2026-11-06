@@ -422,6 +422,7 @@ pub fn run(cmd: Command) {
         FileFilter | FileOpen | FileOpenFolder | FileByOrder | FilePriority(_) | FileRelocate => {
             crate::detail::run(cmd)
         }
+        Dialog(v) => crate::dialogs::run(v),
     }
 }
 

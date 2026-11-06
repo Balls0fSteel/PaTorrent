@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_125550_1793966150: Version 1.2.11: the Mac torrent dialogs (slice F)
+
+- Add New Torrent (a window per torrent: Save In with recent folders, name, options, label, "Don't show this again", the file tree with check boxes and priorities, Select All/None; magnets one at a time after their metadata), Add Torrent from URL (prefilled from the clipboard), Create New Torrent (hashing on a worker with progress and Cancel, then seeding), the Properties sheet (mixed states for several torrents) and the one-line input (C's New Label now works). Dialog controls run through `Command::Dialog`; `frontend::add` gains tree, remember and clipboard helpers with tests. `ROOKPARCEL_TEST_PICK`, `_SAVE` and `_ACCEPT` answer panels and press default buttons, so the VM can drive the dialogs over SSH.
+- Merged with C and D: F had numbered `Command::Dialog` 53, which D's Files commands use; it is 59 now. Checked by slice F on the VM (screen locked): a real `.torrent` added, a magnet whose dialog opened after its metadata and which then downloaded from nox, a created torrent seeding, the Properties sheet. **Not checked:** mouse and keyboard in the dialogs, the real panels, several-torrent Properties, dark mode and German.
+- **Issues:** the Add tree's children lookup is O(n²) for a folder of tens of thousands of files (a child-at-index hook in `table.rs` fixes it); on the locked VM the main thread stalled about 12 s after a sheet began.
+
 ## 2026-11-06_123255_1793964775: Version 1.2.10: the Mac detail tabs (slice D)
 
 - The seven detail tabs on `Core::detail`, asking only for the shown tab: General (the Downloaded and Availability bars, Transfer and General in a grid), Trackers with status icons, Peers, Pieces (the map and the list with drawn block bars), Files (the D50 filter with "N of M files", Open, Open Containing Folder, Prioritize by File Order, priorities, Relocate, Find and Select All in the tab), the 600 s Speed graph, the Logger. Drawn views use semantic colours and carry accessibility labels; their geometry is in `frontend::app::drawn` with tests. `table.rs` gains drawn cells of any canvas kind.
@@ -62,42 +68,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - `site/img/screenshot-windows.png` (1000x680) and `add-new-torrent.png` (751x602, also `docs/screenshots/`) are new shots of the 1.2.4 Win32 GUI: "Rookparcel 1.2.4" in the title bar (built with `ROOKPARCEL_BUILD` empty), the Postal Rook icon, the toolbar search box, a downloading torrent's General tab, and the current Add New Torrent layout with the Sintel torrent. Taken on the hidden desktop from a portable demo copy (`--demo 40`), with `TMP` and `dir.download` pointed at `D:\Downloads` so no user folder shows. `index.html`: the dialog's size and alt text follow the new layout.
 - Checked: `build.py --strict`, the site tests, and the home page in the browser pane.
 - Still "PaTorrent" on GitHub: the release titles and bodies up to 1.2.0, and the 1.2.0 file names on the download page (the files are named so; `build.py` accepts both prefixes). Both go once a Rookparcel release is published. The wiki's other screenshots still show PaTorrent title bars.
-
-## 2026-11-05_230706_1793916426: Published: the rename on GitHub `main` and the wiki
-
-- The owner renamed the repository to `Balls0fSteel/Rookparcel`; Pages serves `https://balls0fsteel.github.io/Rookparcel/`. `origin` now names the new URL. `main` was fast-forwarded to `58e5b1fa` (1.2.2-1.2.4, the icons and the site colours) and pushed.
-- Wiki `b97aafa`: `docs/wiki` and the search guide copied over; `Installing-`, `Updating-`, `Where-...-keeps-its-files` and `Running-...-nox` have new names, and the old pages are one-line pointers to them (they also show in GitHub's automatic page list). Checked first that the wiki had no edits outside `docs/wiki`. The screenshots still show the old name in title bars.
-
-## 2026-11-05_230319_1793916199: Version 1.2.4: the small app icon is the courier rook (09, redrawn)
-
-- The owner chose GPT's `09 Compact Courier` for 16-32 px. Redrawn in `assets/rookparcel-icons`: `src/courier-32.svg` (20-32 px, vector) and `src/courier-16.txt`/`.svg` (16 px, pixel by pixel), with a heavier, long two-toned rook beak (pale bare base), a smaller lidded eye, a peaked cap with band and gold badge, and the flat cream square replaced by a paper tile with a stamp-red rim that holds its edge on dark taskbars. The stamp stays from 48 px; `build.cjs` rebuilt `04-postal-rook`. D60 updated.
-- Checked: the Win32 and nox builds, `the_app_icon_at_every_size`, `comparison.png` (before, GPT's 09, now; light and dark), and the icons Windows extracts from the built `rookparcel.exe`.
-
-## 2026-11-05_225249_1793915569: Postal Rook candidates designed for small sizes
-
-- Saved 11 built-in image-generation masters, exact prompts, PNG frames and ICOs in [the small-icon study](docs/art/postal-rook-small-2026-11-05/README.md). Decoded all 110 ICO frames; reviewed actual 16/20/24/32/48 px on light and dark backgrounds against the original stamp.
-- Independent visual review favors 10 Night Courier, 11 Closed Envelope and 09 Compact Courier. These are new candidate studies; no production assets, D60 decision or program version changed. Next: owner selection and dedicated small-size refinement.
-
-## 2026-11-05_225036_1793915436: Website in the Postal Rook's colours
-
-- `site/css/style.css`: the teal and copper palette (from the Verdigris icon) becomes the stamp's: a navy hero and page heads with a stamp-red rule, red buttons, a paper-cream button with a kraft rim on the hero, gold hero links and focus ring, a pale red list hover, our benchmark bars in red; light and dark. Links stay a navy blue (red reads as an error). `--copper` is now `--accent`; every page's `theme-color` is `#14233d`.
-- Checked: every text pair at WCAG AA or better in both schemes (lowest 5.7:1, the buttons); `build.py --strict` with the test releases, the site tests, and the pages in the browser pane in light and dark (computed colours, the benchmark bars, no console errors).
-
-## 2026-11-05_224301_1793914981: Version 1.2.3: the Postal Rook is the app icon (D60)
-
-- Family `04-postal-rook` (`assets/patina-icons/exports/app/`, built by `assets/rookparcel-icons/build.cjs`): the drawn 16 px and 20-32 px marks, and from 48 px the generated stamp the owner chose. `app-icon.txt` and the Flatpak `ICON_DIR` name it, so the Win32 and nox executables, GTK, the Web UI favicon, AppImages, macOS bundles, the Flatpak, the installer and the site all follow; D57's Verdigris is superseded.
-- Checked: the Win32 and nox builds, `the_app_icon_at_every_size`, the site tests; the icons Windows extracts from `rookparcel.exe` (16-32 px drawn, 48 and 256 px the stamp) and a hidden demo window's title bar. The site's teal and copper colours still follow the old icon.
-
-## 2026-11-05_223827_1793914707: Postal Rook app icon redrawn as vectors, per size
-
-- `assets/rookparcel-icons/`: the owner's chosen Postal Rook as hand-written SVG in three drawings: a pixel-by-pixel 16 px mark, a 20-32 px head close-up (cap, pale rook face, beak on a kraft parcel) and the 48-512 px stamp (walking rook, courier bag). `build.cjs` makes the PNGs and a 10-frame ICO (25 KB against the cropped candidate's 145 KB); `comparison.png` sets its real frames beside the generated candidate's. At 16-32 px the head, cap and parcel stay readable where the crops blur. Candidate only: not yet wired into the programs.
-
-## 2026-11-05_222944_1793914184: Cropped Rookparcel ICO candidates
-
-- Exported 25 ICO files: light/dark crops of all 12 concepts plus a transparent Postal Rook stamp; matching PNGs, preview, crop coordinates, exporter and ZIP in the artwork folder. Postal Rook is the owner's favorite.
-- Decoded all 250 embedded frames (10 sizes, 16-256 px) and visually checked the crop preview. Small sizes are resampled studies; dedicated pixel refinement and production integration remain open. No program change or version bump.
-
-## 2026-11-05_221629_1793913389: Rookparcel UI icon studies
-
-- Saved four concept sheets (96 labeled studies), exact prompts and visual review in [the UI artwork index](docs/art/rookparcel-ui-2026-11-05/README.md). Reviewed existing toolbar and small-size proofs with an independent audit.
-- Verified all four PNGs decode; documented generated semantic inconsistencies. Exploration only: no production assets or program version changed; native-size vector refinement remains open.

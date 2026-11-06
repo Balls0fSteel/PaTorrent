@@ -151,6 +151,7 @@ objc2-foundation = { workspace = true, features = [
     "NSNotification",
     "NSObjCRuntime",
     "NSObject",
+    "NSOperation",
     "NSProcessInfo",
     "NSRange",
     "NSRunLoop",

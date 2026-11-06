@@ -324,6 +324,10 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   512 px); native review of the 26 Mac menu strings (fa, sr, hr, bg, nb, pl, hu, it, zh-Hant
   and tr are the least sure); the dark-mode tab labels came out blank in one snapshot, to look at
   on an unlocked screen; macOS 15 shows "Preferences" as "Settings…" by itself.
+  From wave 1 (2026-11-06_125550_1793966150): everything that needs a selected row, a mouse or
+  the keyboard waits for an unlocked VM screen (context menus, sheets, check boxes, panels,
+  shortcuts, drops; scripts in the slices' scratch folders); the Add dialog's tree lookup is
+  O(n²) for tens of thousands of files in one folder (add a child-at-index hook to `table.rs`).
 - macOS `.app` has started on the runner with Homebrew moved away, bundled
   libraries and strict codesign; a real Mac must check painted window contents,
   toolbar icons, file dialogs and interactions. The runner's local-network prompt

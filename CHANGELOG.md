@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_123255_1793964775: Version 1.2.10: the Mac detail tabs (slice D)
+
+- The seven detail tabs on `Core::detail`, asking only for the shown tab: General (the Downloaded and Availability bars, Transfer and General in a grid), Trackers with status icons, Peers, Pieces (the map and the list with drawn block bars), Files (the D50 filter with "N of M files", Open, Open Containing Folder, Prioritize by File Order, priorities, Relocate, Find and Select All in the tab), the 600 s Speed graph, the Logger. Drawn views use semantic colours and carry accessibility labels; their geometry is in `frontend::app::drawn` with tests. `table.rs` gains drawn cells of any canvas kind.
+- Merged with slice C: the tab views go in before C's saved layout picks the tab; the Files commands are checked before the torrent ones. Checked on the VM by slice D with `--demo 200` in light and dark mode through a temporary in-app driver (the console was locked); a downloading torrent, a real transfer and the keyboard were not seen. Windows: clippy (both Apple targets, Windows), fmt, 315 frontend and 9 Mac tests. My VM run of the merged tree: `--demo 300` listed in 0.57 s with the sidebar counts and the detail pane's hint.
+- **Fixed:** `tools/mac-vm/push.sh` packed a conflicted file twice while a merge was in progress (`git ls-files` lists it once per stage) and the VM's tar refused the second copy; the list is now de-duplicated.
+
 ## 2026-11-06_122817_1793964497: Version 1.2.9: the Mac main window (slice C)
 
 - The main window runs on `Core`: the torrent list with all 24 columns, state icons, the Done bar, sorting and column layout in prefs; the sidebar's category and label counts (Feeds rows wait for slice H); the status bar with the update link and the network part's click to Preferences > Connection; every Torrent and context-menu command (Remove's sheet, labels through the input dialog, bandwidth, Initial Seeding, Set Download Location, Open Containing Folder, Start/Stop All); double-click, Return and ⌫; `.torrent` files dropped on the window.

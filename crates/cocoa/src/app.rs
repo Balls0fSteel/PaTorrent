@@ -207,6 +207,7 @@ fn start(mtm: MainThreadMarker, args: Args) {
     let list = crate::list::build(&columns, sort, alternate_rows, mtm);
     let ui = Rc::new(window::build(crate::sidebar::build(mtm), list, mtm));
     UI.with(|u| *u.borrow_mut() = Some(ui.clone()));
+    crate::detail::install(&ui);
     ui.apply_layout(&layout);
     crate::sidebar::select_all_torrents();
     ui.window.makeKeyAndOrderFront(None);
@@ -418,6 +419,9 @@ pub fn run(cmd: Command) {
         | InitialSeeding | DownLimit(_) | UpLimit(_) | NewLabel | RemoveLabel | Label(_) => {
             crate::torrent_menu::run(cmd)
         }
+        FileFilter | FileOpen | FileOpenFolder | FileByOrder | FilePriority(_) | FileRelocate => {
+            crate::detail::run(cmd)
+        }
     }
 }
 
@@ -428,6 +432,9 @@ fn collapse(item: &NSSplitViewItem, collapsed: bool) {
 
 /// Whether a command is enabled now, and whether it shows a check mark.
 pub fn state(cmd: Command) -> (bool, Option<bool>) {
+    if let Some(s) = crate::detail::state(cmd) {
+        return s;
+    }
     if cmd.needs_selection() {
         return crate::torrent_menu::state(cmd);
     }

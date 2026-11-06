@@ -22,6 +22,7 @@ mod add;
 mod alerts;
 mod commands;
 mod dirs;
+pub mod drawn;
 mod layout;
 mod rss;
 mod status;

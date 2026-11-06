@@ -16,8 +16,10 @@ SSH=(ssh -i "$KEY" -o BatchMode=yes)
 cd "$(git rev-parse --show-toplevel)"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-# files deleted in the working tree are still in the index: only those that exist
+# files deleted in the working tree are still in the index: only those that exist; a merge in
+# progress lists a conflicted file once per stage: each only once (tar would store a link)
 git ls-files --cached --others --exclude-standard \
+    | sort -u \
     | grep -v -E '^(docs|site|third_party)/' \
     | while IFS= read -r f; do [ -f "$f" ] && printf '%s\n' "$f"; done > "$tmp/files"
 tar -czf "$tmp/src.tgz" -T "$tmp/files"

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-06_084738_1793951258: Wiki screenshots retaken; v1.2.5 tagged
+
+- `docs/wiki/images` (18 changed, same sizes) and `docs/screenshots/search-win-dropdown*.png` retaken from the 1.2.4 demo on the hidden desktop: Rookparcel title bars and icon, `D:\Downloads\rookparcel-mock`; pushed to the wiki. The other search-guide shots never showed the name and need a real Jackett, so they stay.
+- CI, FreeBSD and Fuzz green on `50362f50`; `v1.2.5` tagged there and pushed, so the Release workflow builds the draft. The news entry waits on the local branch `news-1.2.5`.
+
 ## 2026-11-06_082750_1793950070: Version 1.2.5: CI green again; release 1.2.5 prepared (1.2.1-1.2.5)
 
 - **Fixed:** CI on `main` failed since the rename push: the runners' clippy 1.99 flags `needless_borrows_for_generic_args` on `.filter(&absolute)` in `crates/frontend/src/legacy.rs`, which stopped the workspace's clippy at the frontend crate. Local clippy (1.90) does not have the lint; workspace clippy and the `legacy` tests pass here.

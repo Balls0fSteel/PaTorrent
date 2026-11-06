@@ -44,6 +44,21 @@
     <!-- Newest first. site/build.py makes news.atom and the home page's latest-news line from
          these articles: keep the id, data-date, news-title and news-lede (docs/WEBSITE.md). -->
 
+    <article class="news-entry" id="v1.2.19" data-date="2026-11-06" aria-labelledby="v1.2.19-h">
+      <h2 id="v1.2.19-h"><a href="#v1.2.19"><time datetime="2026-11-06">Fri 6 Nov 2026</time> — <span class="news-title">Rookparcel 1.2.19</span></a></h2>
+      <p class="news-lede">A native Mac app: one <code>Rookparcel.app</code> for Apple silicon and Intel Macs, on macOS 11 Big Sur or newer, which takes over the GTK app's settings and torrents. On every platform, a stopped magnet reconnects at once when started.</p>
+      <ul class="changes">
+        <li><span class="tag tag-plat">macOS</span><span class="vh">:</span> <span>The same main window, menus and dialogs as on Windows and Linux, now built with AppKit, with ⌘ shortcuts, Full Screen and dark mode.</span></li>
+        <li><span class="tag tag-plat">macOS</span><span class="vh">:</span> <span>One app for Apple silicon and Intel, macOS 11 or newer: Intel Macs get the GUI too.</span></li>
+        <li><span class="tag tag-plat">macOS</span><span class="vh">:</span> <span>Preferences apply at once, with no OK or Apply; a value that cannot be used is shown in red.</span></li>
+        <li><span class="tag tag-plat">macOS</span><span class="vh">:</span> <span>A menu bar icon, completion notifications, a login item, and <code>.torrent</code> files and magnet links opened from Finder and browsers.</span></li>
+        <li><span class="tag tag-area">Updates</span><span class="vh">:</span> <span>The first start takes over the GTK app's settings, torrents and profiles. Quit the old app first.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>A magnet stopped from its Add dialog reconnects to its peer at once when it is started, not a minute later.</span></li>
+      </ul>
+      <p class="news-note">Versions 1.2.6 to 1.2.18 were development steps; this entry covers them. The Mac app is not notarised: the first time, right-click it and choose Open, or click Open Anyway in System Settings &gt; Privacy &amp; Security.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/Rookparcel/releases/tag/v1.2.19">Download 1.2.19 on GitHub</a> · <a href="https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/releases/1.2.19.md">Full release notes</a></p>
+    </article>
+
     <article class="news-entry" id="v1.2.5" data-date="2026-11-06" aria-labelledby="v1.2.5-h">
       <h2 id="v1.2.5-h"><a href="#v1.2.5"><time datetime="2026-11-06">Fri 6 Nov 2026</time> — <span class="news-title">Rookparcel 1.2.5</span></a></h2>
       <p class="news-lede">PaTorrent is now Rookparcel, with a new icon, the Postal Rook. Everything else is as in 1.2.0: settings, torrents, profiles and portable folders from PaTorrent are taken over at the first start.</p>

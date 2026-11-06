@@ -61,7 +61,7 @@
     <section class="qa" id="what" aria-labelledby="what-h">
       <h2 id="what-h">What is Rookparcel?</h2>
       <p>A lean BitTorrent client in the spirit of µTorrent 2.2.1: small native programs, low RAM and CPU use, and a list that stays responsive with tens of thousands of torrents.</p>
-      <p>There are three programs: <code>rookparcel</code>, the native Windows GUI; <code>rookparcel-gtk</code>, the GTK 4 GUI for Linux, BSD and macOS; and <code>rookparcel-nox</code>, a headless daemon with its own Web UI for every platform. The engine is our own Rust port of libtorrent-rasterbar 2.0.11: libtorrent's code is the reference, nothing of it is linked.</p>
+      <p>There are four programs: <code>rookparcel</code>, the native Windows GUI; <code>Rookparcel.app</code>, the native macOS GUI; <code>rookparcel-gtk</code>, the GTK 4 GUI for Linux and BSD; and <code>rookparcel-nox</code>, a headless daemon with its own Web UI for every platform. The engine is our own Rust port of libtorrent-rasterbar 2.0.11: libtorrent's code is the reference, nothing of it is linked.</p>
       <p>Rookparcel is made by <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a>. The source is on <a href="https://github.com/Balls0fSteel/Rookparcel">GitHub</a>.</p>
     </section>
 
@@ -93,7 +93,7 @@
           <tr><td>Portable mode, any platform</td><td>The folder of the program (below)</td></tr>
           <tr><td>GTK GUI on Linux and BSD</td><td>Settings in <code>~/.config/rookparcel/gtk</code>, torrents in <code>~/.local/share/rookparcel/gtk</code> (or under <code>$XDG_CONFIG_HOME</code> and <code>$XDG_DATA_HOME</code>)</td></tr>
           <tr><td>GTK GUI as a Flatpak</td><td>The same, under <code>~/.var/app/io.github.balls0fsteel.Rookparcel/</code> (<code>config/</code> and <code>data/</code>)</td></tr>
-          <tr><td>GTK GUI on macOS</td><td><code>~/Library/Application Support/Rookparcel/gtk</code></td></tr>
+          <tr><td>macOS GUI</td><td><code>~/Library/Application Support/Rookparcel/mac</code> (the older GTK version used <code>gtk</code> there; the first start of the native app renames it to <code>mac</code>)</td></tr>
           <tr><td><code>rookparcel-nox</code></td><td>A <code>nox</code> folder in the same places: <code>%APPDATA%\Rookparcel\nox</code>, <code>~/.config/rookparcel/nox</code> and <code>~/.local/share/rookparcel/nox</code>, or <code>~/Library/Application Support/Rookparcel/nox</code>; as a service, see <a href="https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/DAEMON.md#files">docs/DAEMON.md</a></td></tr>
         </tbody>
       </table>

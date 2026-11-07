@@ -1,0 +1,38 @@
+# The Dockerfile builds rookparcel-nox from the workspace: every member's manifest and sources
+# (crates/*, tools/swarm), Cargo.lock, LICENSE.md and THIRD-PARTY-NOTICES.md (nox --license),
+# assets/patina-icons (app-icon.txt, exports/app) and assets/ui-icon-explorations/png*/bold
+# (the frontend embeds them), contrib/docker. Everything else stays out of the context.
+
+# build output, the repository and session folders (worktrees under .claude are whole copies)
+target/
+**/target/
+.git
+.github/
+.claude/
+graphify-out/
+z_exclude_uTorrent/
+/rookparcel.ini
+/state
+
+# not used by the build
+docs/
+site/
+third_party/
+fuzz/
+packaging/
+*.bat
+*.md
+!LICENSE.md
+!THIRD-PARTY-NOTICES.md
+!crates/**/*.md
+assets/rookparcel-icons/
+assets/patina-icons/candidates/
+assets/patina-icons/states/
+assets/patina-icons/*.png
+assets/ui-icon-explorations/*.png
+assets/ui-icon-explorations/png-mono/
+assets/ui-icon-explorations/qa/
+assets/ui-icon-explorations/review-*/
+assets/ui-icon-explorations/svg*/
+tools/*
+!tools/swarm/

@@ -20,6 +20,8 @@ name: Release
 #   natively on each runner; installing it needs Flathub for the runtime.
 # - macOS: a universal dmg of Rookparcel.app (the native AppKit GUI, arm64 and x86_64, macOS 11
 #   or later) and rookparcel-nox tarballs for arm64 and x86_64.
+# - A container image of rookparcel-nox for amd64 and arm64 (Dockerfile), pushed to
+#   ghcr.io/balls0fsteel/rookparcel-nox, not attached to the release.
 
 on:
   push:
@@ -553,6 +555,93 @@ jobs:
       - name: Crash reports
         if: failure()
         run: python3 .github/scripts/macos_crash_reports.py
+
+  # The container image of rookparcel-nox (Dockerfile, docs/wiki/Docker.md) for amd64 and arm64,
+  # each built natively on its own runner (under QEMU the fat-LTO build would take hours). A tag
+  # pushes each by digest to GitHub's registry and docker-manifest names them; a dry run builds
+  # them here and pushes nothing.
+  docker:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE: ghcr.io/balls0fsteel/rookparcel-nox
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - if: github.ref_type == 'tag'
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/${{ matrix.arch }}
+          build-args: VERSION=${{ needs.version.outputs.version }}
+          labels: org.opencontainers.image.revision=${{ github.sha }}
+          outputs: ${{ github.ref_type == 'tag' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', env.IMAGE) || 'type=docker,name=rookparcel-nox:dry-run' }}
+      - name: The image starts
+        env:
+          REF: ${{ github.ref_type == 'tag' && format('{0}@{1}', env.IMAGE, steps.build.outputs.digest) || 'rookparcel-nox:dry-run' }}
+        run: docker run --rm "$REF" --version
+      - if: github.ref_type == 'tag'
+        name: The digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: mkdir digests && touch "digests/${DIGEST#sha256:}"
+      - if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@v7
+        with:
+          name: docker-digest-${{ matrix.arch }}
+          path: digests/*
+          retention-days: 1
+
+  # The image's tags, once every release file has built: ghcr.io/balls0fsteel/rookparcel-nox:
+  # <version>, and :latest for a version without a suffix. The package is private until the
+  # owner makes it public once (docs/RELEASING.md).
+  docker-manifest:
+    if: github.ref_type == 'tag'
+    needs: [version, docker, release]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: docker-digest-*
+          merge-multiple: true
+          path: digests
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag the image
+        working-directory: digests
+        env:
+          IMAGE: ghcr.io/balls0fsteel/rookparcel-nox
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          tags=(-t "$IMAGE:$VERSION")
+          case "$VERSION" in *-*) ;; *) tags+=(-t "$IMAGE:latest") ;; esac
+          docker buildx imagetools create "${tags[@]}" $(printf "$IMAGE@sha256:%s " *)
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
+          echo "Image: \`$IMAGE:$VERSION\` (linux/amd64, linux/arm64)" >> "$GITHUB_STEP_SUMMARY"
 
   release:
     if: github.ref_type == 'tag'

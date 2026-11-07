@@ -1,0 +1,52 @@
+# rookparcel-nox with Docker Compose (docs/wiki/Docker.md): put the Web UI password in a file
+# `.env` beside this one (ROOKPARCEL_WEBUI_PASS=...), `docker compose up -d` in this folder, then
+# open http://<this computer>:8080 and log in as admin. Without the password, the first start
+# prints a temporary one: `docker compose logs rookparcel`.
+#
+# /srv/media is the media folder Sonarr, Radarr and Prowlarr mount too, at the same path in
+# every container, so the path nox reports is the same file for them and imports can hardlink
+# (docs/wiki/Sonarr-Radarr-and-Prowlarr.md). Downloads go to /srv/media/downloads.
+# From those containers nox is http://rookparcel:8080 once `rookparcel` is in its Web UI's
+# Preferences > Web UI > Server domains.
+
+name: rookparcel
+
+services:
+  rookparcel:
+    image: ghcr.io/balls0fsteel/rookparcel-nox:latest
+    # or build it from the repository: `build: ../..`
+    container_name: rookparcel
+    hostname: rookparcel
+    restart: unless-stopped
+    # the owner of the media folder on the host (`id -u`, `id -g`); the image's own user is
+    # 1000:1000, and another one needs a /config it can write (docs/wiki/Docker.md)
+    user: "1000:1000"
+    environment:
+      ROOKPARCEL_WEBUI_USER: admin
+      # from .env or the shell; stored hashed in /config at every start
+      ROOKPARCEL_WEBUI_PASS: ${ROOKPARCEL_WEBUI_PASS:-}
+      UMASK: "0002"
+    command:
+      - run
+      - --state-dir
+      - /config
+      - --save
+      - /srv/media/downloads
+      - --webui
+      - 0.0.0.0:8080
+      - --port
+      - "6881"
+    volumes:
+      - rookparcel-config:/config
+      - /srv/media:/srv/media
+    ports:
+      - "8080:8080"
+      # the listening port: forward it in the router too; UPnP and NAT-PMP cannot reach the
+      # router from Docker's bridge network
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    # nox saves the state of every torrent on SIGTERM
+    stop_grace_period: 60s
+
+volumes:
+  rookparcel-config:

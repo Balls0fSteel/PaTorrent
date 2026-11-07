@@ -85,6 +85,48 @@ jobs:
       - run: rustup target add aarch64-apple-darwin
       - run: cargo check -p rookparcel-mac -p rookparcel-gtk --target aarch64-apple-darwin
 
+  # The container image (Dockerfile, docs/wiki/Docker.md) for amd64, built and started without
+  # pushing when a change touches the Dockerfile, .dockerignore or contrib/docker (or by hand);
+  # release.yml pushes it for both architectures on a tag.
+  docker:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - id: changed
+        name: Changes to the image's files
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          build=true
+          if [ "$GITHUB_EVENT_NAME" != workflow_dispatch ] && [ -n "$BASE" ] && [ "$BASE" != 0000000000000000000000000000000000000000 ]; then
+            git fetch --no-tags --depth=1 origin "$BASE"
+            if ! git diff --name-only "$BASE" HEAD | grep -qE '^(Dockerfile|\.dockerignore|contrib/docker/)'; then
+              build=false
+            fi
+          fi
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+      - if: steps.changed.outputs.build == 'true'
+        uses: docker/setup-buildx-action@v4
+      - if: steps.changed.outputs.build == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: rookparcel-nox:ci
+      - if: steps.changed.outputs.build == 'true'
+        name: The image starts, serves the Web UI and stops cleanly
+        run: |
+          docker run --rm rookparcel-nox:ci --version
+          docker run -d --name nox -p 8080:8080 rookparcel-nox:ci
+          for i in $(seq 30); do curl -fsS -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+          curl -fsS -o /dev/null http://127.0.0.1:8080/
+          docker logs nox 2>&1 | grep -q 'temporary password for this run'
+          docker stop -t 60 nox
+          docker logs nox 2>&1 | tail -3
+          docker logs nox 2>&1 | tail -1 | grep -qx '\* stopped'
+          test "$(docker inspect nox --format '{{.State.ExitCode}}')" = 0
+
   # the release build, its slow tests and reports, and the installer that release.yml makes
   # (built, installed and uninstalled here too, so installer breakage shows before a tag)
   release-windows:

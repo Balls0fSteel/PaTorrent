@@ -820,6 +820,48 @@ pub fn outline(
     (scroll, ov, source)
 }
 
+/// A tree that looks like a table (the Files tab's folder tree): tree `hooks` under the
+/// columns' header, whose menu shows and hides the columns that may hide, several rows
+/// selectable, alternating rows, every folder open. Items keep their identity over reloads
+/// (one `NSNumber` per id), so `reloadData` keeps the folders the user closed closed.
+pub fn tree_table(
+    kind: TableKind,
+    specs: Vec<ColumnSpec>,
+    hooks: Hooks,
+    mtm: MainThreadMarker,
+) -> (Retained<objc2_app_kit::NSScrollView>, Retained<NSOutlineView>, Retained<RPTableSource>) {
+    let ov = NSOutlineView::new(mtm);
+    let source = build(&ov, kind, specs, hooks, mtm);
+    if let Some(c) = source.ivars().columns.borrow().first() {
+        // SAFETY: the column is the outline's own, kept by the source.
+        unsafe { ov.setOutlineTableColumn(Some(c)) };
+    }
+    ov.setStyle(NSTableViewStyle::FullWidth);
+    ov.setAllowsMultipleSelection(true);
+    ov.setUsesAlternatingRowBackgroundColors(true);
+    // SAFETY: the source is the outline's data source and delegate; the caller keeps it.
+    unsafe {
+        ov.setDataSource(Some(ProtocolObject::from_ref(&*source)));
+        ov.setDelegate(Some(ProtocolObject::from_ref(&*source)));
+    }
+    ov.reloadData();
+    // SAFETY: nil expands every top-level item and, with true, everything below.
+    unsafe { ov.expandItem_expandChildren(None, true) };
+    let scroll = scroll(&ov, mtm);
+    (scroll, ov, source)
+}
+
+/// Lets go of a table or outline that is being thrown away: its data source, delegate and
+/// target (AppKit may keep the view a little longer than the source that served it).
+pub fn detach(tv: &NSTableView) {
+    // SAFETY: nil data source, delegate and target are allowed; the view asks nothing more.
+    unsafe {
+        tv.setDataSource(None);
+        tv.setDelegate(None);
+        tv.setTarget(None);
+    }
+}
+
 fn scroll(tv: &NSTableView, mtm: MainThreadMarker) -> Retained<objc2_app_kit::NSScrollView> {
     let s = objc2_app_kit::NSScrollView::new(mtm);
     s.setDocumentView(Some(tv));

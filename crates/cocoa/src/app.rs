@@ -280,7 +280,7 @@ fn open(mtm: MainThreadMarker, args: Args, remote: Option<crate::remote::Connect
     let layout = Layout::load(&prefs);
     // the engine's alert notification and the workers wake the main thread through this
     let wake: fapp::Wake = Arc::new(|w: Wakeup| mainq::on_main(move || on_wake(w)));
-    let core = Core::start(Start {
+    let mut core = Core::start(Start {
         session,
         remote,
         prefs,
@@ -291,6 +291,8 @@ fn open(mtm: MainThreadMarker, args: Args, remote: Option<crate::remote::Connect
         // a demo (screenshots, scale runs) never asks the update server
         updates: rookparcel_frontend::update::AVAILABLE && args.demo.is_none(),
     });
+    // the Files tab's folder tree or plain list (D62), before the tab is built
+    core.set_files_tree(layout.files_tree);
     let sort = core.list().sort();
     let alternate_rows = core.gui_options().alternate_rows;
     APP.with(|a| {
@@ -527,7 +529,7 @@ pub fn run(cmd: Command) {
         | InitialSeeding | DownLimit(_) | UpLimit(_) | NewLabel | RemoveLabel | Label(_) => {
             crate::torrent_menu::run(cmd)
         }
-        FileFilter | FileOpen | FileOpenFolder | FileByOrder | FilePriority(_) | FileRelocate => {
+        FileFilter | FileOpen | FileOpenFolder | FileByOrder | FilePriority(_) | FileRelocate | FilesTree => {
             crate::detail::run(cmd)
         }
         Dialog(v) => crate::dialogs::run(v),

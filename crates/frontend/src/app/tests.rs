@@ -436,3 +436,76 @@ fn the_detail_tabs_show_the_first_selected_torrent() {
     core.select(&[]);
     assert!(core.detail_torrent().is_none());
 }
+
+/// A `.torrent` named `name` holding `files` (path parts, size), one 16 KiB piece.
+fn multi_torrent(name: &str, files: &[(&[&str], u64)]) -> Vec<u8> {
+    let bstr = |s: &str| format!("{}:{s}", s.len());
+    let mut list = String::new();
+    for (parts, size) in files {
+        let path: String = parts.iter().map(|p| bstr(p)).collect();
+        list.push_str(&format!("d6:lengthi{size}e4:pathl{path}ee"));
+    }
+    let mut b =
+        format!("d4:infod5:filesl{list}e4:name{}12:piece lengthi16384e6:pieces20:", bstr(name)).into_bytes();
+    b.extend([b'a'; 20]);
+    b.extend(b"ee");
+    b
+}
+
+/// The tree's node named `name`, searched from the top.
+fn node_named(core: &Core, name: &str) -> usize {
+    let tree = core.detail().file_tree().expect("the tree");
+    let mut todo = tree.children(None);
+    while let Some(n) = todo.pop() {
+        if tree.node(n).unwrap().name == name {
+            return n;
+        }
+        todo.extend(tree.children(Some(n)));
+    }
+    panic!("no node {name}")
+}
+
+#[test]
+fn the_files_tree_acts_on_nodes() {
+    use rookparcel_core::DownloadPriority;
+    let mut core = Setup::new().start("files-tree");
+    let save = temp("files-tree-save");
+    let files: [(&[&str], u64); 3] =
+        [(&["Season 1", "e01.mkv"], 1000), (&["Season 1", "e02.mkv"], 3000), (&["info.nfo"], 5)];
+    let AddStep::Dialog(r) = core.add_file(multi_torrent("Show", &files)) else { panic!("no dialog") };
+    core.finish_add(r, Some(AddChoice { save_path: save.to_string_lossy().into_owned(), ..choice() }));
+    pump(&mut core, "the torrent", |c| c.list().len() == 1);
+    let id = core.list().ids().next().unwrap();
+    core.select(&[id]);
+    core.show_tab(Tab::Files);
+    pump(&mut core, "its files", |c| c.detail().file_tree().is_some());
+    let prio =
+        |c: &Core| -> Vec<u8> { c.detail().files.as_ref().unwrap().iter().map(|f| f.priority.0).collect() };
+
+    // a folder's path, a file's; a node that is not there has none
+    let season = node_named(&core, "Season 1");
+    let e02 = node_named(&core, "e02.mkv");
+    let show = save.join("Show");
+    assert_eq!(core.file_node_path(season), Some((save.clone(), show.join("Season 1"))));
+    assert_eq!(core.file_node_path(e02), Some((save.clone(), show.join("Season 1").join("e02.mkv"))));
+    assert_eq!(core.file_node_path(99), None);
+
+    // the folder's files take the priority
+    let under = core.detail().file_tree().unwrap().files_under_nodes(&[season]);
+    assert_eq!(under, [0, 1]);
+    core.set_file_priority_files(&under, Some(DownloadPriority::DONT_DOWNLOAD));
+    pump(&mut core, "the new priorities", |c| prio(c) == [0, 0, 4]);
+    // the rows' version maps rows the same way: row 0 is the folder
+    core.set_file_priority(&[0], Some(DownloadPriority::NORMAL));
+    pump(&mut core, "the folder back to Normal", |c| prio(c) == [4, 4, 4]);
+    // Prioritize by File Order takes every file while the filter hides some
+    assert!(core.set_file_filter("nfo"));
+    core.set_file_priority_files(&[2], None);
+    pump(&mut core, "by file order", |c| prio(c) == [7, 5, 3]);
+    assert!(core.set_file_filter(""));
+
+    // a folder is never relocated; nor is anything in the plain list by node
+    core.relocate_file_node(season, &save.join("elsewhere"));
+    assert!(core.set_files_tree(false));
+    assert_eq!(core.file_node_path(e02), None);
+}

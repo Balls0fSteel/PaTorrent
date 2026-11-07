@@ -30,6 +30,7 @@
 - [Web UI](Web-UI)
 - [Remote control](Remote-control)
 - [rookparcel-nox](Running-rookparcel-nox)
+- [Docker](Docker)
 - [Sonarr, Radarr, Prowlarr](Sonarr-Radarr-and-Prowlarr)
 
 **Reference**

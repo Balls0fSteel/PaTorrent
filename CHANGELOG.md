@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-07_084750_1794037670: A Docker image of rookparcel-nox, published to GHCR on release tags
+
+- **Owner request:** a Docker image; the owner chose a Dockerfile, a Compose example and docs, plus images for amd64 and arm64 pushed to GitHub's registry on each tag.
+- **Image:** `Dockerfile` builds only `rookparcel-nox` (`--locked`, no update check) on `rust:1-bookworm` and runs it on `debian:bookworm-slim` with OpenSSL 3 and the CA certificates, as user `rookparcel` (1000:1000); volumes `/config` (state and settings via `--state-dir`) and `/downloads`, ports 8080 and 6881 TCP/UDP. `contrib/docker/docker-entrypoint.sh` runs nox as PID 1, takes `ROOKPARCEL_WEBUI_PASS`/`_USER` and `UMASK` (0002), and adds options given alone to the default `run`. `contrib/docker/compose.yaml` mounts the media folder at the *arr containers' path and allows 60 s to stop.
+- **CI:** `release.yml`'s `docker` job builds each architecture natively (no QEMU) and pushes by digest on a tag; `docker-manifest` tags `ghcr.io/balls0fsteel/rookparcel-nox:<version>` (and `:latest` without a suffix) after the release job. `ci.yml` builds the amd64 image when the Docker files change.
+- **Docs:** wiki page `Docker` (run, Compose, password, user ids, Server domains for container names, ports and UPnP), linked from the *arr page, DAEMON.md and README; RELEASING.md has the one-time step of making the package public. No program changed, so no version bump.
+- **Validation:** the amd64 image built and ran on the Xubuntu VM (Web UI, temporary and env passwords, state kept across a restart, a clean stop). Not run: the GHCR push, the arm64 image, the workflow itself (BACKLOG "macOS and packaged Linux builds").
+
 ## 2026-11-07_084025_1794037225: Version 1.2.21: the Files tab shows the folder tree
 
 - **Owner request:** the Files tab should show the Add Torrent dialog's folder tree, or offer it with a toggle; the owner chose the tree as the default (D62).

@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-07_084025_1794037225
+Last updated: 2026-11-07_084750_1794037670
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -11,7 +11,7 @@ A lean recreation of µTorrent 2.2.1: native look, small single-file binaries, a
 | Binary | Platform | Role |
 |---|---|---|
 | `rookparcel` | Windows 10+ x64 | Native Win32 GUI |
-| `rookparcel-nox` | All supported platforms | Daemon, native push API, Web UI, qBittorrent-compatible shim |
+| `rookparcel-nox` | All supported platforms, Docker | Daemon, native push API, Web UI, qBittorrent-compatible shim |
 | `rookparcel-gtk` | Linux / BSD | GTK 4 GUI on the shared frontend model |
 | `rookparcel-mac` | macOS 11+ (universal) | Native AppKit GUI on `frontend::app` (D61), shipped as `Rookparcel.app` |
 
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**1.2.21 (2026-11-07_084025_1794037225):** the Files tab shows the folder tree by default in all four UIs, with a toggle to 2.2.1's list (D62), and fixes a GTK abort with any torrent listed (since 1.2.0's row shading). Hand checks in BACKLOG "Files tab folder tree". Next on macOS: drop the legacy notification centre (BACKLOG "macOS" (A)).
+**1.2.21 (2026-11-07_084025_1794037225):** the Files tab shows the folder tree by default in all four UIs, with a toggle to 2.2.1's list (D62), and fixes a GTK abort with any torrent listed (since 1.2.0's row shading); hand checks in BACKLOG "Files tab folder tree". A nox Docker image goes to GHCR on tags; the first push is untested. Next on macOS: drop the legacy notification centre (BACKLOG "macOS" (A)).
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
@@ -43,8 +43,6 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **G.** Smart disk I/O (D48, [DISKIO.md](docs/DISKIO.md)) shipped in 1.1.36-1.1.40; real-disk busy-throttle measurements remain in BACKLOG "Disk and storage". **Keep ping low** (D49, [LOWPING.md](docs/LOWPING.md)) shipped in 1.1.29-1.1.31; 1.1.32 passed a bloated-line test (~480 ms to 9 ms at 80-92% line use). Next: the owner's gaming line, a Mac run, and BACKLOG items including 2.2.1's "Stop transfers on user interaction".
 - **H.** Approved 2026-11-04 (D56): 2.2.1's web search engines (empty default list), icon skins, and dark mode; research in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999), each designed before code.
 - **I.** The owner's six points (2026-11-04, [PROPOSALS.md](docs/PROPOSALS.md)): D50 Files filter, D51 search helper, D53 Setup Guide, D54 "Use only this network" and D55 help texts shipped in 1.2.0. D52 native macOS GUI is designed (D61, [MACOS_GUI.md](docs/MACOS_GUI.md)); slices are checked on the owner's macOS VM. [BUGHUNT-2026-11-05.md](docs/BUGHUNT-2026-11-05.md) records all 38 findings. 1.2.0 takes peer ID `-PA1013-` for the wire changes (owner, 2026-11-05). **Open:** a real VPN run, a real first start through the guide, the GUI looks; the Win32 test binary's rare heap fault under parallel load (BACKLOG "Validation"; run its tests on one thread meanwhile).
-
-**Owner notes (2026-10-30_192440_1793384680):** all done (D44, D45, D47); hand checks in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website).
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8; re-test on a fresh Win32 build ([BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101)).
 1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `RP` with the client-ID lists (item 14).

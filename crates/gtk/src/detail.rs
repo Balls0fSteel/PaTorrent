@@ -2,7 +2,8 @@
 //! Pieces, Files, Speed and Logger, drawn from the frontend's [`Detail`] for the selected
 //! torrent. Trackers, Peers, Files and Logger are [`Table`]s; General is a grid of labels
 //! under two drawn bars; Pieces is the piece map over the list of pieces being downloaded;
-//! Speed is the 600-second graph.
+//! Speed is the 600-second graph. Files shows the torrent's folder tree (D62) or, with its
+//! Tree View button released, 2.2.1's plain list of paths.
 //!
 //! The widgets read the data through a [`Peek`] at the application state when they draw, so
 //! only the tab on screen costs anything.
@@ -64,6 +65,9 @@ pub struct Details {
     files: Table,
     /// The Files tab's quick filter box (D50) at its top right; the window wires its signals.
     pub files_filter: gtk::SearchEntry,
+    /// Beside the filter box: the folder tree (pressed) or the plain list (D62); the window
+    /// wires it to `win.files-tree`.
+    pub files_tree: gtk::ToggleButton,
     /// "12 of 3,400 files" beside the filter box while a filter is on.
     files_count: gtk::Label,
     /// The Files tab's page: the filter bar over the list.
@@ -88,13 +92,19 @@ struct General {
     pairs: Vec<(gtk::Label, gtk::Label)>,
 }
 
+/// Opens (`Some(true)`), closes (`Some(false)`) or toggles (`None`) the folder in a Files tab
+/// row; true when the rows changed (the window splices them with [`Details::files_spliced`]).
+pub type ExpandFolder = Rc<dyn Fn(usize, Option<bool>) -> bool>;
+
 impl Details {
-    /// `on_switch` gets the tab the user picks; `files_menu` opens the Files tab's menu.
+    /// `on_switch` gets the tab the user picks; `files_menu` opens the Files tab's menu;
+    /// `expand` opens and closes the Files tab's folders (their arrows, Right and Left).
     pub fn new(
         peek: Peek,
         tab: Tab,
         on_switch: impl Fn(Tab) + 'static,
         files_menu: ContextMenu,
+        expand: ExpandFolder,
     ) -> Rc<Details> {
         let notebook = gtk::Notebook::new();
         notebook.set_scrollable(true);
@@ -115,7 +125,19 @@ impl Details {
             Some((0, status_icon)),
         );
         let peers = Table::new(Tab::Peers.columns(), text(Tab::Peers), None, None);
-        let files = Table::new(Tab::Files.columns(), text(Tab::Files), None, Some(files_menu));
+        // the folder tree (D62): indents, arrows and icons in the Name column
+        let tree_row: crate::table::CellTree = Rc::new(move |row| {
+            with(peek, |d, _| d.file_tree_row(row).map(|r| (r.depth, r.folder))).flatten()
+        });
+        let arrow: crate::table::Expand = {
+            let expand = expand.clone();
+            Rc::new(move |row| {
+                expand(row, None);
+            })
+        };
+        let files =
+            Table::with_tree(Tab::Files.columns(), text(Tab::Files), Some(files_menu), tree_row, arrow);
+        files.view.add_controller(folder_keys(peek, &files, expand));
         let logger = Table::new(Tab::Logger.columns(), text(Tab::Logger), None, None);
         logger.view.set_show_column_separators(false);
         let blocks: crate::table::CellPaint = Rc::new(move |w, s, width, height, row| {
@@ -197,6 +219,9 @@ impl Details {
         let files_count = gtk::Label::new(None);
         files_count.add_css_class("dim-label");
         files_count.set_visible(false);
+        let files_tree = gtk::ToggleButton::with_label(tr!(FilesTree));
+        files_tree.set_tooltip_text(Some(tr!(FilesTreeTip)));
+        files_tree.set_focus_on_click(false);
         let files_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         files_bar.set_halign(gtk::Align::End);
         files_bar.set_margin_top(4);
@@ -204,6 +229,7 @@ impl Details {
         files_bar.set_margin_end(4);
         files_bar.append(&files_count);
         files_bar.append(&files_filter);
+        files_bar.append(&files_tree);
         let files_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
         files_page.append(&files_bar);
         files_page.append(&scrolled(&files.view));
@@ -246,6 +272,7 @@ impl Details {
             peers,
             files,
             files_filter,
+            files_tree,
             files_count,
             files_page,
             logger,
@@ -286,6 +313,28 @@ impl Details {
     pub fn focus_in_files(&self) -> bool {
         let page = self.files_page.upcast_ref::<gtk::Widget>();
         self.files_page.root().and_then(|r| r.focus()).is_some_and(|f| &f == page || f.is_ancestor(page))
+    }
+
+    /// A folder in Files tab row `row` opened or closed, the rows going from `old` to `new`.
+    pub fn files_spliced(&self, row: usize, old: usize, new: usize) {
+        self.files.spliced(row, old, new);
+        self.refresh_files();
+    }
+
+    /// The Files tab turned into the folder tree or the plain list (`tree`): the rows start
+    /// over and the toggle button follows.
+    pub fn files_view_changed(&self, tree: bool) {
+        self.set_files_tree_button(tree);
+        let n = rows(self.peek, Tab::Files);
+        self.files.replace_all(n);
+        self.refresh_files();
+    }
+
+    /// Presses the toggle button for the tree (or releases it for the plain list).
+    pub fn set_files_tree_button(&self, tree: bool) {
+        if self.files_tree.is_active() != tree {
+            self.files_tree.set_active(tree);
+        }
     }
 
     /// Ctrl+A in the Files list: the rows the filter shows.
@@ -349,6 +398,44 @@ impl Details {
             }
         }
     }
+}
+
+/// The Files list's keys in the folder tree: Right opens the selected folder, Left closes it
+/// or, on a file or a closed folder, selects the folder holding it.
+fn folder_keys(peek: Peek, files: &Table, expand: ExpandFolder) -> gtk::EventControllerKey {
+    let key = gtk::EventControllerKey::new();
+    key.set_propagation_phase(gtk::PropagationPhase::Capture);
+    let (view, selection) = (files.view.downgrade(), files.selection.downgrade());
+    key.connect_key_pressed(move |_, key, _, state| {
+        use gtk::gdk::{Key, ModifierType};
+        let proceed = glib::Propagation::Proceed;
+        if !matches!(key, Key::Left | Key::Right | Key::KP_Left | Key::KP_Right)
+            || state
+                .intersects(ModifierType::CONTROL_MASK | ModifierType::ALT_MASK | ModifierType::SHIFT_MASK)
+            || with(peek, |d, _| d.files_tree()) != Some(true)
+        {
+            return proceed;
+        }
+        let (Some(view), Some(selection)) = (view.upgrade(), selection.upgrade()) else { return proceed };
+        let set = selection.selection();
+        if set.is_empty() {
+            return proceed;
+        }
+        let row = set.nth(0) as usize;
+        let open = matches!(key, Key::Right | Key::KP_Right);
+        if !expand(row, Some(open)) && !open {
+            if let Some(parent) = with(peek, |d, _| d.file_parent_row(row)).flatten() {
+                view.scroll_to(
+                    parent as u32,
+                    None,
+                    gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                    None,
+                );
+            }
+        }
+        glib::Propagation::Stop
+    });
+    key
 }
 
 fn rows(peek: Peek, tab: Tab) -> usize {
@@ -675,7 +762,7 @@ fn speed_graph(w: &gtk::Widget, s: &gtk::Snapshot, width: f32, height: f32, d: &
 /// run): Open and Open Containing Folder (`win.file-open`, `win.file-open-folder`) when the
 /// files are on this machine; Prioritize by File Order (`win.file-by-order`); the Priority
 /// submenu and Don't Download (`win.file-prio-N`, N into [`PRIORITIES`]); Relocate
-/// (`win.file-relocate`) when local.
+/// (`win.file-relocate`) when local; then Tree View (`win.files-tree`, D62).
 pub fn files_menu(local: bool) -> gio::Menu {
     let menu = gio::Menu::new();
     let item = |section: &gio::Menu, text: &str, action: &str| {
@@ -704,6 +791,10 @@ pub fn files_menu(local: bool) -> gio::Menu {
         item(&relocate, tr!(MenuRelocate), "win.file-relocate");
         menu.append_section(None, &relocate);
     }
+    // a check item: the action's state is whether the tab shows the folder tree (D62)
+    let view = gio::Menu::new();
+    item(&view, tr!(MenuFilesTree), "win.files-tree");
+    menu.append_section(None, &view);
     menu
 }
 

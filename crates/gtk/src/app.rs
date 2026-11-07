@@ -22,7 +22,7 @@ use rookparcel_core::{
 };
 use rookparcel_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use rookparcel_frontend::columns::Column;
-use rookparcel_frontend::detail::{Detail, PRIORITIES, Tab};
+use rookparcel_frontend::detail::{Detail, FILES_TREE_KEY, PRIORITIES, Tab};
 use rookparcel_frontend::icons::{Icon, network_icon};
 use rookparcel_frontend::import::{self, Begin, Client};
 use rookparcel_frontend::integration::{Integration, MINIMIZED};
@@ -377,6 +377,7 @@ const CSS: &str = "
 progressbar.pa-done, progressbar.pa-done > trough { min-width: 16px; }
 progressbar.pa-done > trough, progressbar.pa-done > trough > progress { min-height: 16px; }
 .pa-done-text { font-size: smaller; }
+button.pa-expander { min-width: 16px; min-height: 16px; padding: 0; }
 ";
 
 /// The alternate row shading (`ui.alternate_rows`): the odd rows that [`crate::table::stripe`]
@@ -568,6 +569,49 @@ fn list_keys_off_in(app: &gtk::Application, entry: &impl IsA<gtk::Widget>) {
         }
     });
     entry.add_controller(focus);
+}
+
+/// Opens (`Some(true)`), closes (`Some(false)`) or toggles (`None`) the Files tab's folder in
+/// `row` (D62), splicing the rows below it; true when the rows changed.
+fn expand_file_folder(row: usize, to: Option<bool>) -> bool {
+    let Some((old, changed, new)) = with_app(|a| {
+        let old = a.detail.rows(Tab::Files);
+        let changed = a.detail.set_file_folder_expanded(row, to);
+        (old, changed, a.detail.rows(Tab::Files))
+    }) else {
+        return false;
+    };
+    if changed {
+        if let Some(ui) = ui() {
+            ui.details.files_spliced(row, old, new);
+        }
+    }
+    changed
+}
+
+/// Shows the Files tab as the folder tree (`true`) or 2.2.1's plain list (D62), from the
+/// toggle button or `win.files-tree`; the choice is kept as [`FILES_TREE_KEY`].
+fn set_files_tree(tree: bool) {
+    let changed = with_app(|a| {
+        let changed = a.detail.set_files_tree(tree);
+        if changed {
+            a.prefs.set_bool(FILES_TREE_KEY, tree);
+        }
+        changed
+    });
+    if changed == Some(true) {
+        show_files_tree(tree);
+    }
+}
+
+/// The Files tab's rows, its toggle button and the menu's check mark follow the view.
+fn show_files_tree(tree: bool) {
+    if let Some(a) = with_app(|a| a.window.lookup_action("files-tree")).flatten() {
+        a.change_state(&tree.to_variant());
+    }
+    if let Some(ui) = ui() {
+        ui.details.files_view_changed(tree);
+    }
 }
 
 /// The Files tab's filter box got `text` (D50): the rows it lets through, the count beside it.
@@ -999,8 +1043,10 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         Rc::new(move |widget, x, y| {
             // the menu hangs off the notebook, which outlives the table's cells
             if let Some(ui) = ui() {
-                // Relocate takes one file, as in µTorrent
-                let one = ui.details.selected_files().len() == 1;
+                // Relocate takes one file, as in µTorrent, not a folder of the tree
+                let rows = ui.details.selected_files();
+                let one =
+                    rows.len() == 1 && with_app(|a| a.detail.file_index(rows[0]).is_some()) == Some(true);
                 if let Some(a) = with_app(|a| a.window.lookup_action("file-relocate")).flatten() {
                     if let Some(a) = a.downcast_ref::<gio::SimpleAction>() {
                         a.set_enabled(one);
@@ -1010,9 +1056,19 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
                 popup_menu(&menu, ui.details.notebook.upcast_ref(), widget, x, y);
             }
         }),
+        Rc::new(expand_file_folder),
     );
-    // a double click or Enter on a file opens it, as in µTorrent
-    details.connect_file_activate(|row| open_file(row, false));
+    // a double click or Enter on a file opens it, as in µTorrent; on a folder of the tree it
+    // opens or closes the folder (D62)
+    details.connect_file_activate(|row| {
+        if with_app(|a| a.detail.file_tree_row(row).is_some_and(|r| r.folder.is_some())) == Some(true) {
+            expand_file_folder(row, None);
+        } else {
+            open_file(row, false);
+        }
+    });
+    // the tree or the plain list (D62), as `win.files-tree` in the Files menu
+    details.files_tree.connect_toggled(|b| set_files_tree(b.is_active()));
     // the Files tab's quick filter (D50): the entry waits for a pause in the typing; the text
     // is never stored
     details.files_filter.connect_search_changed(|e| set_file_filter(&e.text()));
@@ -1249,6 +1305,9 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     // magnets whose dialog was still to come at the last exit
     let awaiting = add::AwaitingMetadata::load(&prefs);
     let update_seen = prefs.get("update.seen").and_then(Version::parse);
+    let files_tree = prefs.get_bool(FILES_TREE_KEY, true);
+    let mut detail = Detail::default();
+    detail.set_files_tree(files_tree);
     let ui = Rc::new(Ui {
         list,
         sidebar,
@@ -1276,7 +1335,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             known: HashSet::new(),
             downloading: HashSet::new(),
             alerts: Vec::new(),
-            detail: Detail::default(),
+            detail,
             files_requested: None,
             awaiting,
             awaiting_dialog: false,
@@ -1315,6 +1374,8 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             load_ip_filter(a, &opts.gui);
         }
     });
+    // the Files tab's view as last left (D62): the toggle button and the menu's check mark
+    show_files_tree(files_tree);
 
     // the engine host's network adapters, for Preferences > Connection (D54)
     handle.post_network_adapters();
@@ -2100,6 +2161,13 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
         });
         window.add_action(&a);
     }
+    // the Files menu's Tree View check item (D62); its state follows `show_files_tree`
+    let files_tree = gio::SimpleAction::new_stateful("files-tree", None, &true.to_variant());
+    files_tree.connect_activate(|a, _| {
+        let tree = a.state().and_then(|s| s.get::<bool>()).unwrap_or(true);
+        set_files_tree(!tree);
+    });
+    window.add_action(&files_tree);
     let relocate = gio::SimpleAction::new("file-relocate", None);
     relocate.connect_activate(|_, _| {
         if let Some(row) = ui().and_then(|ui| ui.details.selected_files().first().copied()) {
@@ -2117,10 +2185,11 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
                 let Some(id) = a.detail.id else { return };
                 let t = a.handle.torrent(id);
                 // by file order takes the whole torrent while the filter hides some (D50)
+                // a folder of the tree stands for its (shown) files (D62)
                 let files: Vec<u32> = if prio.is_none() && a.detail.file_filter.is_on() {
                     a.detail.all_files()
                 } else {
-                    rows.iter().filter_map(|&r| a.detail.file_index(r)).collect()
+                    a.detail.file_indexes(&rows)
                 };
                 let set = match prio {
                     Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
@@ -2437,7 +2506,8 @@ fn open_folder(ids: &[TorrentId]) {
 }
 
 /// The Files tab's Open (a double click, Enter, the menu) and Open Containing Folder for its
-/// row `row`. Open hands the file to its default program; a file not on disk yet does nothing.
+/// row `row`. Open hands the file (or the tree's folder) to its default program; a file not on
+/// disk yet does nothing.
 /// The folder shows the file once it exists, else the nearest folder inside the save path that
 /// does.
 fn open_file(row: usize, folder: bool) {
@@ -2463,7 +2533,8 @@ fn open_file(row: usize, folder: bool) {
         let shown = path.ancestors().skip(1).take_while(|p| p.starts_with(&save)).find(|p| p.is_dir());
         let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(shown.unwrap_or(&save))));
         launcher.launch(Some(&window), None::<&gio::Cancellable>, done);
-    } else if path.is_file() {
+    } else if path.is_file() || path.is_dir() {
+        // a folder of the tree (D62) opens in the file manager
         let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&path)));
         launcher.launch(Some(&window), None::<&gio::Cancellable>, done);
     }

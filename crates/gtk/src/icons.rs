@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use gtk::prelude::*;
-use gtk::{gdk, glib};
+use gtk::{gdk, gio, glib};
 use rookparcel_frontend::icons::{self, APP_SIZES, Icon, StateIcon, UiIcon};
 
 use crate::app::APP_ID;
@@ -35,6 +35,27 @@ thread_local! {
     static THEMED: RefCell<Vec<(Art, glib::WeakRef<gtk::Image>)>> = RefCell::default();
     /// The folder [`setup`] wrote the application icon into.
     static THEME_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+    /// The theme's icon per lower-case file extension ([`file_icon`]).
+    static FILE_ICONS: RefCell<HashMap<String, gio::Icon>> = RefCell::default();
+}
+
+/// The theme's icon for a folder (`Some(open)`) or a file named `name` (`None`), as the file
+/// trees of the Add dialog and the Files tab show them.
+pub fn file_icon(name: &str, folder: Option<bool>) -> gio::Icon {
+    if let Some(open) = folder {
+        return gio::ThemedIcon::new(if open { "folder-open" } else { "folder" }).upcast();
+    }
+    let ext = name.rsplit_once('.').map_or(String::new(), |(_, e)| e.to_lowercase());
+    FILE_ICONS.with(|icons| {
+        icons
+            .borrow_mut()
+            .entry(ext)
+            .or_insert_with_key(|ext| {
+                let (kind, _) = gio::content_type_guess(Some(format!("file.{ext}")), None);
+                gio::content_type_get_icon(&kind)
+            })
+            .clone()
+    })
 }
 
 fn texture(png: &'static [u8]) -> Option<gdk::Texture> {

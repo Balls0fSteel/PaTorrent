@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-06_232629_1794003989
+Last updated: 2026-11-07_084025_1794037225
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**1.2.20 (2026-11-06_232629_1794003989):** an Add Torrent file filter and type-ahead in all four GUIs, type-ahead in Win32's lists; GTK and macOS compile-checked only (BACKLOG "Files tab filter and help text"). Next on macOS: drop the legacy notification centre (BACKLOG "macOS" (A)).
+**1.2.21 (2026-11-07_084025_1794037225):** the Files tab shows the folder tree by default in all four UIs, with a toggle to 2.2.1's list (D62), and fixes a GTK abort with any torrent listed (since 1.2.0's row shading). Hand checks in BACKLOG "Files tab folder tree". Next on macOS: drop the legacy notification centre (BACKLOG "macOS" (A)).
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
@@ -85,7 +85,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
-- D46 and D50-D61 are settled; no decision is proposed.
+- D46 and D50-D62 are settled; no decision is proposed.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 

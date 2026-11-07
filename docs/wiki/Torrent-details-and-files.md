@@ -95,17 +95,29 @@ The list below the map shows the pieces being downloaded now: their number (**#*
 
 ![The Files tab](images/tab-files.png)
 
-The torrent's files, one row each.
+The torrent's files in their folders, as the [Add New Torrent window](Adding-torrents#torrent-contents) shows them.
 
 | Column | Meaning |
 |---|---|
-| **Name** | the file's path inside the torrent |
+| **Name** | the file's or folder's name; folders open and close with the arrow beside them |
 | **Size** | its size |
 | **Done** | how much of it is downloaded |
 | **%** | the same in percent |
 | **# Pieces** | how many pieces it spans |
 | **First Piece** | the number of its first piece |
-| **Priority** | **High**, **Normal**, **Low** or **Don't Download** |
+| **Priority** | **High**, **Normal**, **Low** or **Don't Download**; **Mixed** for a folder whose files differ |
+
+A folder row adds up its files' **Size** and **Done**; it has no piece columns.
+
+### Tree view or one list
+
+*New in 1.2.21; not in a published release yet.*
+
+The **Tree view** button beside the filter box, or **Tree View** in the right-click menu, switches between the folders and µTorrent 2.2.1's single list of paths (the torrent's own folder included). Rookparcel remembers the choice. In the tree:
+
+- Click the arrow, double-click a folder, or press <kbd>Right</kbd> / <kbd>Left</kbd> to open or close it. <kbd>Left</kbd> on a file goes to its folder.
+- Folders stay open or closed while the list updates and after you change priorities. Selecting another torrent opens every folder again.
+- A priority, **Don't Download** or **Prioritize by File Order** chosen on a folder applies to all the files in it (only the shown ones while a filter is on). **Open** and **Open Containing Folder** on a folder open that folder; **Relocate...** is for single files.
 
 ### Choosing files and their order
 
@@ -133,7 +145,7 @@ After **Relocate...** to a file that was not on disk, run **Force Re-Check** so 
 A torrent with thousands of files is easier to handle with the **Filter files** box at the top right of the Files tab.
 
 1. Click the box, or press <kbd>Ctrl</kbd>+<kbd>F</kbd> while the Files tab has the focus.
-2. Type one or more words. The list shows only the files whose path, folders included, contains every word, ignoring case. "12 of 3,400 files" beside the box says how many match.
+2. Type one or more words. The list shows only the files whose path, folders included, contains every word, ignoring case; in the tree, their folders are shown open. "12 of 3,400 files" beside the box says how many match.
 3. Select the files you want and use the right-click menu. <kbd>Ctrl</kbd>+<kbd>A</kbd> selects only the files shown.
 4. <kbd>Esc</kbd> empties the box; <kbd>Enter</kbd> goes to the list.
 

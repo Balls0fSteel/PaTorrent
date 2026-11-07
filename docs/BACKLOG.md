@@ -990,6 +990,14 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   absent shows its GUID in the drop-down; remembering the friendly name would read better.
 - DNS lookups (the system resolver) and keep ping low's probes are not bound: not torrent traffic.
 
+## Files tab folder tree (D62; built 2026-11-07_084025_1794037225)
+
+- **All:** a torrent with thousands of files (the tree is rebuilt on a new list and, in the Web UI, on every update and filter keystroke); RTL (Left/Right and the arrows are not mirrored, as in the Add dialog); dark themes; a remote window.
+- **Win32:** the right-click menu's look and its Tree View check; 150-200 % DPI (system small icons are not rescaled); Open on a folder; real mouse double clicks. On Windows 11 the open and closed folder icons look nearly alike.
+- **GTK:** Open / Open Containing Folder on files and folders, Prioritize by File Order and Relocate on real files, a dark theme. Re-check the row shading fix on older GTK 4 (Debian 12, the Flatpak runtime) and decide whether it needs a release of its own.
+- **macOS:** clicks, real right-click (the clicked row as target), Select All, Open, Reveal and Relocate in the tree were not run (the VM's screen was locked; checks went through a tick-driven hack). Return does not open a file in the tree: the outline has no key hook (an `RPOutlineView` subclass needs approval).
+- **Web UI:** a real phone (long press), Windows nox paths.
+
 ## Files tab filter and help text (D50, D55; built 2026-11-04)
 
 - **D50 Files tab filter** (1.1.56): run the Web UI's box in a browser (layout, Ctrl+F against the

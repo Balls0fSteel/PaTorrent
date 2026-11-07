@@ -4,6 +4,16 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-07_084025_1794037225: Version 1.2.21: the Files tab shows the folder tree
+
+- **Owner request:** the Files tab should show the Add Torrent dialog's folder tree, or offer it with a toggle; the owner chose the tree as the default (D62).
+- **Shared model:** `FileTree` gains per-file progress with folder sums, engine priorities (`from_entries`, `set_file_states`, shown in µTorrent's three levels so 7/6/5 is not Mixed), `files_under_rows`/`files_under_nodes` and `node_path`; the torrent's own folder is left out but still matched by the filter. `Detail` shows the tree by default, refreshes it in place after a priority change (collapsed folders stay collapsed), and maps every action through `file_indexes`. `ui.files_tree` keeps the choice; strings `FilesTree`, `MenuFilesTree`, `FilesTreeTip` in all 35 tables (machine-translated).
+- **Win32:** indents and shell icons (the Add dialog's icon code is now a shared `ShellIcons`), folders open and close by icon click, double click, Enter, Left/Right, +/-; a "Tree view" box left of the filter and a checked menu item; Relocate greyed for folders.
+- **GTK:** expander arrows, folder/file icons, Left/Right and double click, a Tree view toggle button and a `win.files-tree` check item. **Fixed:** since the alternate-row shading of 2026-11-05 (in v1.2.0-1.2.20), `table::stripe` freed cells GTK was still building, so the client aborted (or listed no rows) as soon as a torrent was listed on GTK 4.22; it now waits until the cell is in a window.
+- **macOS:** an outline with the tab's columns (`table::tree_table`), a Tree view check box and menu item (`Command::FilesTree`); Core adds `set_file_priority_files`, `file_node_path`, `relocate_file_node`.
+- **Web UI:** the Add dialog's JS tree is shared with the Files tab: folder sums and Mixed, priorities on folders, collapsed folders kept per torrent, sorting within folders, Left/Right and type-ahead (new for the flat list too); `pa.filesTree` in the browser. The owner set the static-file budget to 500 KB (browsers cache the files); the three files are 252,632 bytes.
+- **Validation:** frontend 359 tests, Win32 114, nox (lib 79, `webui` 43 and the rest), GTK 20 and macOS 12 on the VMs; clippy clean for each crate on its platform. Screenshots: Win32 (hidden desktop), GTK (Xvfb), macOS (snapshots), Web UI in the built-in browser at desktop and phone width. Not run: real right-click menus, Open on a folder, RTL, high DPI, Return to open a file in the macOS tree.
+
 ## 2026-11-06_232629_1794003989: Version 1.2.20: a file filter and type-ahead in the Add Torrent dialog
 
 - **Owner request:** filter the Add Torrent dialog's files to check or uncheck them quickly, and make a typed letter (G) jump to the files starting with it. The Win32 list never answered `LVN_ODFINDITEMW` (owner-data lists ask their parent), so typed letters did nothing there, nor in the main torrent list and the detail tabs.

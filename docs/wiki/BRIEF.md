@@ -65,6 +65,7 @@ End users of Rookparcel, not developers. Task-oriented: "how do I...". Cover the
 | Web-UI.md | D | turning on the Web UI in the Windows/GTK window (Preferences > Web UI) and in nox; signing in; HTTPS; what the page can do; phones |
 | Remote-control.md | D | File > Connect to Remote, `--remote`, what works remotely, security |
 | Running-rookparcel-nox.md | D | the headless daemon: commands, flags, Windows service, systemd, FreeBSD, files, stopping |
+| Docker.md | D | the rookparcel-nox container image: docker run, Compose, volumes, ports, the password variables, user IDs, *arr containers, stopping, updating |
 | Sonarr-Radarr-and-Prowlarr.md | D | using nox or the hosted Web UI as a qBittorrent-type download client, categories, paths |
 | Searching-for-torrents.md | E | search box filter vs source search, Manage Sources, the search helper on all platforms, Prowlarr/Jackett, adding results; links to the existing page Searching-for-torrents-on-Windows |
 | RSS-Downloader.md | E | feeds, filters, episode matching, downloading from feeds, in the Web UI too |

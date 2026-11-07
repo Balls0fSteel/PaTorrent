@@ -65,6 +65,7 @@ Release builds are on the [Releases page](https://github.com/Balls0fSteel/Rookpa
 | Linux desktop, Flatpak | `Rookparcel-<version>-<arch>.flatpak` | the GTK 4 GUI on the GNOME 51 runtime from Flathub |
 | Linux, plain binaries | `rookparcel-<version>-linux-<arch>.tar.gz` | `rookparcel-gtk`, `rookparcel-nox`, the desktop entry and the systemd units; they use the system's GTK 4.12+ and OpenSSL 3 |
 | Linux server, headless | `rookparcel-nox-<version>-<arch>.AppImage` | `rookparcel-nox` with OpenSSL bundled |
+| Docker, amd64 or arm64 | `ghcr.io/balls0fsteel/rookparcel-nox:<version>` (from 1.2.21 on) | `rookparcel-nox` in a container image, for Sonarr, Radarr and Prowlarr setups ([wiki: Docker](https://github.com/Balls0fSteel/Rookparcel/wiki/Docker)) |
 | macOS, Apple silicon or Intel | `Rookparcel-<version>-macos.dmg` | `Rookparcel.app`, the native macOS GUI, one universal app (macOS 11 Big Sur or newer; ad-hoc signed, so right-click > Open the first time). Earlier releases have `Rookparcel-<version>-arm64.dmg` instead: the GTK GUI for Apple silicon, macOS 15 or newer |
 | macOS, headless | `rookparcel-nox-<version>-macos-<arch>.tar.gz` | `rookparcel-nox` for Apple silicon and Intel |
 

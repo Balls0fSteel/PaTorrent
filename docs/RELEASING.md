@@ -16,6 +16,7 @@ How a version goes out (PLAN.md D22, Road to 1.0 items 6, 7 and 14). The files a
 | `Rookparcel-<version>-macos.dmg` | `Rookparcel.app`: the native AppKit GUI (`rookparcel-mac`, D61) as one universal binary for Apple silicon and Intel, macOS 11 or later, ad-hoc signed; the two texts | `macos-15` (x86_64 cross-built and joined with `lipo`) |
 | `rookparcel-nox-<version>-macos-arm64.tar.gz`, `-macos-x86_64.tar.gz` | `rookparcel-nox` (system libraries only: TLS is Secure Transport, D9), the two texts | `macos-15` (x86_64 cross-built) |
 | `SHA256SUMS` | the files' SHA-256 | |
+| `ghcr.io/balls0fsteel/rookparcel-nox:<version>`, `:latest` | not a release file: the container image of `rookparcel-nox` ([`Dockerfile`](../Dockerfile), Debian bookworm-slim with OpenSSL 3) for `linux/amd64` and `linux/arm64`, pushed to GitHub's registry; `:latest` only for a version without a suffix (see [Container image](#container-image)) | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 
 The tarballs' binaries use the system's glibc, OpenSSL 3 and GTK 4 (4.12 or later), as Ubuntu
 24.04 has them, so they run on distributions about that age or newer. The AppImages carry their
@@ -193,6 +194,29 @@ Once, before the first tag after the rename:
 
 A dry run without a tag: Actions > Release > Run workflow builds the same files as one
 artifact per platform, named `<version>-dev.<commit>`, and makes no release.
+
+### Container image
+
+On a tag the `docker` jobs build the image natively on each architecture's runner, start it
+(`--version`) and push it by digest; once the draft release is made, `docker-manifest` joins
+the two under `ghcr.io/balls0fsteel/rookparcel-nox:<version>` (and `:latest` without a
+suffix). The tags exist before the draft is published, so a dropped draft also needs its image
+version deleted (the package's **Package settings** on GitHub) and `:latest` pointed back with
+`docker buildx imagetools create -t ghcr.io/balls0fsteel/rookparcel-nox:latest
+ghcr.io/balls0fsteel/rookparcel-nox:<previous version>`. A dry run builds both images and
+pushes nothing. CI builds and starts the amd64 image when a change touches the `Dockerfile`,
+`.dockerignore` or `contrib/docker`.
+
+- **The first push only:** a new GHCR package is private. On GitHub, open the profile's
+  **Packages** > `rookparcel-nox` > **Package settings**, set **Change visibility** to public,
+  and under **Manage Actions access** check that this repository has write access (the
+  workflow creates the package with it). Then `docker pull ghcr.io/balls0fsteel/rookparcel-nox`
+  works without a login. Link the package to the repository there too if GitHub did not (the
+  image's `org.opencontainers.image.source` label normally does).
+- While trying the draft (step 5), pull `:<version>` on a Linux machine (and on arm64 when one
+  is at hand) and run the checks of [Docker](wiki/Docker.md): the Web UI answers, the temporary
+  password is in `docker logs`, `ROOKPARCEL_WEBUI_PASS` logs in, `docker stop -t 60` ends
+  with `* stopped`.
 
 ### Profiles and portable mode (D42)
 

@@ -48,6 +48,7 @@ Most pages describe the Windows window and then say what differs in the GTK wind
 - [Web UI](Web-UI)
 - [Remote control](Remote-control): a desktop window driving a Rookparcel elsewhere
 - [Running rookparcel-nox](Running-rookparcel-nox): the headless daemon and services
+- [Docker](Docker): rookparcel-nox as a container image
 - [Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr)
 
 ## Reference

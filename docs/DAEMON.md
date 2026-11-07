@@ -31,6 +31,15 @@ FreeBSD rc.d script. On Windows `rookparcel-nox service install` registers a Win
 ([below](#the-windows-service)). The command-line options are the configuration; the rest
 (limits, folders, the Web UI's settings) is set in the Web UI and kept in `webui.json`.
 
+A container image is built from the repository's [`Dockerfile`](../Dockerfile) and published
+as `ghcr.io/balls0fsteel/rookparcel-nox` (amd64, arm64) with every release: nox as PID 1 under
+user 1000, everything in the `/config` volume (`--state-dir /config`), the Web UI on
+`0.0.0.0:8080`, `ROOKPARCEL_WEBUI_PASS` / `ROOKPARCEL_WEBUI_USER` for `--webui-pass` /
+`--webui-user`, no update check (built with `ROOKPARCEL_NO_UPDATE_CHECK`). A Compose file is in
+[`contrib/docker`](../contrib/docker/compose.yaml); usage in the wiki's
+[Docker](https://github.com/Balls0fSteel/Rookparcel/wiki/Docker) page
+([source](wiki/Docker.md)).
+
 ## Through a proxy
 
 `--proxy TYPE://[USER:PASS@]HOST:PORT` (TYPE `socks4`, `socks5` or `http`; credentials pick the

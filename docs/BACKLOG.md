@@ -406,6 +406,13 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   generate the owner's submission prose. Aarch64 bundles build but are untried
   on arm64 desktops. Plain Linux tarballs need the build baseline's glibc,
   OpenSSL 3 and GTK 4 libraries. FreeBSD packaging is later.
+- **Container image (2026-11-07):** hand-check the first GHCR publish (the `docker` and
+  `docker-manifest` jobs of the first tag that has them, 1.2.21 or later; making the package public,
+  `docker pull` without a login, the `:latest` tag) and run the arm64 image on a real arm64
+  machine (a Raspberry Pi or an arm64 VM); only the amd64 image was built and run, on the
+  Xubuntu VM with Docker 29's classic builder. Not tried: Podman, Docker Desktop on Windows or
+  macOS, `--network host` with UPnP/NAT-PMP, Sonarr/Radarr/Prowlarr against the containerised
+  nox (the arr-test harness ran nox on the host).
 
 ## Remote mode and Web UI
 

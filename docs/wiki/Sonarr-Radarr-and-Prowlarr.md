@@ -57,6 +57,8 @@ Either use the IP address in the app, or add the name to **Server domains (separ
 
 Several names are separated with `;`; `*` matches anything. Prefer naming the hosts over `*`: the check protects against web pages that reach the Web UI under a name of their own.
 
+To run nox itself in a container beside the apps, see [Docker](Docker): its image, a Compose file with the shared media folder, and the user IDs.
+
 ## Categories and labels
 
 A qBittorrent category is a **label** in Rookparcel. The torrents an app adds get its category as their label, so you see them under that label in the categories list ([Managing torrents](Managing-torrents)). Changing a torrent's label in Rookparcel changes its category for the app too; an app only tracks torrents in its own category.
@@ -112,4 +114,5 @@ Prowlarr only adds torrents; it does not track or import them. Add Rookparcel in
 
 - [Web UI](Web-UI): turning it on, HTTPS and security.
 - [Running rookparcel-nox](Running-rookparcel-nox): nox as a service that starts with the computer.
+- [Docker](Docker): nox in a container.
 - The technical notes on what the apps call: [INTEGRATIONS.md, part 1](https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/INTEGRATIONS.md#part-1-the-shim-as-an-arr-download-client).

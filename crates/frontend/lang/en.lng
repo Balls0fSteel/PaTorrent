@@ -1259,6 +1259,15 @@ FilesFilterCount={shown} of {total} files
 
 # The tooltip of the × that empties the filter box (Win32; GTK's search entry has its own).
 FilesFilterClear=Clear the filter (Esc)
+
+# The toggle button beside the filter box: on, the files show in their folders.
+FilesTree=Tree view
+
+# The same toggle as a checked item of the Files tab's right-click menu.
+MenuFilesTree=&Tree View
+
+# The toggle's tooltip and help text.
+FilesTreeTip=Show the files in their folders, as Add New Torrent does; off: one list of paths
 MenuImportQbt=Import from &qBittorrent...
 MenuImportUt=Import from &µTorrent...
 

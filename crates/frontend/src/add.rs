@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use rookparcel_core::metainfo::TorrentInfo;
 use rookparcel_core::{
-    AddTorrentParams, Alert, DownloadPriority, MoveFlags, QueueMove, SessionHandle, TorrentFlags,
+    AddTorrentParams, Alert, DownloadPriority, FileEntry, MoveFlags, QueueMove, SessionHandle, TorrentFlags,
     TorrentHandle, TorrentId,
 };
 
@@ -47,6 +47,8 @@ enum Kind {
         files: u32,
         wanted: u32,
         size: u64,
+        /// Completed bytes of the files below (the Files tab, [`FileTree::set_done`]).
+        done: u64,
         /// The one priority of its wanted files, `None` when they differ (or none is wanted).
         priority: Option<DownloadPriority>,
     },
@@ -63,6 +65,8 @@ pub struct Row<'a> {
     pub check: Check,
     /// The file's size, or the sum of the folder's files.
     pub size: u64,
+    /// Completed bytes of the file, or of the folder's files; 0 until [`FileTree::set_done`].
+    pub done: u64,
     /// `None` for a folder whose files differ.
     pub priority: Option<DownloadPriority>,
     /// The torrent file index, for files.
@@ -77,6 +81,12 @@ pub struct FileTree {
     /// Top-level nodes.
     roots: Vec<u32>,
     sizes: Vec<u64>,
+    /// Completed bytes per torrent file (the Files tab); zeros in the Add dialog.
+    done: Vec<u64>,
+    /// The torrent's own folder that [`FileTree::from_entries`] left out of the tree, with a
+    /// trailing `/`; empty otherwise. The filter matches it as part of every path, as the flat
+    /// Files tab shows them.
+    root: String,
     /// Per torrent file: `None` for pad files.
     node_of: Vec<Option<u32>>,
     wanted: Vec<bool>,
@@ -115,6 +125,8 @@ impl FileTree {
             nodes: Vec::new(),
             roots: Vec::new(),
             sizes: Vec::new(),
+            done: Vec::new(),
+            root: String::new(),
             node_of: Vec::new(),
             wanted: Vec::new(),
             priority: Vec::new(),
@@ -127,6 +139,7 @@ impl FileTree {
         let mut dirs: std::collections::HashMap<(u32, String), u32> = std::collections::HashMap::new();
         for (i, (parts, size, pad)) in files.into_iter().enumerate() {
             t.sizes.push(size);
+            t.done.push(0);
             t.wanted.push(!pad);
             t.priority.push(DownloadPriority::NORMAL);
             if pad || parts.is_empty() {
@@ -151,6 +164,7 @@ impl FileTree {
                                     files: 0,
                                     wanted: 0,
                                     size: 0,
+                                    done: 0,
                                     priority: None,
                                 },
                             },
@@ -191,24 +205,24 @@ impl FileTree {
     /// finishes each folder before it is added to its own parent.
     fn recount(&mut self) {
         for node in &mut self.nodes {
-            if let Kind::Dir { files, wanted, size, priority, .. } = &mut node.kind {
-                (*files, *wanted, *size, *priority) = (0, 0, 0, None);
+            if let Kind::Dir { files, wanted, size, done, priority, .. } = &mut node.kind {
+                (*files, *wanted, *size, *done, *priority) = (0, 0, 0, 0, None);
             }
         }
         // per folder: the wanted files' priorities differ
         let mut differ = vec![false; self.nodes.len()];
         for i in (0..self.nodes.len()).rev() {
-            let (f, w, s, p) = match &mut self.nodes[i].kind {
+            let (f, w, s, d, p) = match &mut self.nodes[i].kind {
                 Kind::File(fi) => {
                     let fi = *fi as usize;
                     let on = self.wanted[fi];
-                    (1, on as u32, self.sizes[fi], on.then_some(self.priority[fi]))
+                    (1, on as u32, self.sizes[fi], self.done[fi], on.then_some(self.priority[fi]))
                 }
-                Kind::Dir { files, wanted, size, priority, .. } => {
+                Kind::Dir { files, wanted, size, done, priority, .. } => {
                     if differ[i] {
                         *priority = None;
                     }
-                    (*files, *wanted, *size, *priority)
+                    (*files, *wanted, *size, *done, *priority)
                 }
             };
             let parent = self.nodes[i].parent;
@@ -216,7 +230,9 @@ impl FileTree {
                 continue;
             }
             let (had_wanted, mixed_below) = (w > 0, w > 0 && p.is_none());
-            if let Kind::Dir { files, wanted, size, priority, .. } = &mut self.nodes[parent as usize].kind {
+            if let Kind::Dir { files, wanted, size, done, priority, .. } =
+                &mut self.nodes[parent as usize].kind
+            {
                 if had_wanted {
                     if mixed_below || (*wanted > 0 && *priority != p) {
                         differ[parent as usize] = true;
@@ -228,6 +244,7 @@ impl FileTree {
                 *files += f;
                 *wanted += w;
                 *size += s;
+                *done += d;
             }
         }
     }
@@ -304,6 +321,8 @@ impl FileTree {
             if node.parent != NO_PARENT {
                 path.push_str(&dir_paths[node.parent as usize]);
                 path.push('/');
+            } else {
+                path.push_str(&self.root);
             }
             path.push_str(&node.name);
             match node.kind {
@@ -379,6 +398,7 @@ impl FileTree {
                     folder: None,
                     check: if self.wanted[fi] { Check::On } else { Check::Off },
                     size: self.sizes[fi],
+                    done: self.done[fi],
                     priority: Some(if self.wanted[fi] {
                         self.priority[fi]
                     } else {
@@ -387,7 +407,7 @@ impl FileTree {
                     file: Some(fi),
                 }
             }
-            Kind::Dir { expanded, files, wanted, size, priority, .. } => Row {
+            Kind::Dir { expanded, files, wanted, size, done, priority, .. } => Row {
                 name: &node.name,
                 depth: node.depth,
                 folder: Some(*expanded || filtering),
@@ -397,6 +417,7 @@ impl FileTree {
                     _ => Check::Mixed,
                 },
                 size: *size,
+                done: *done,
                 priority: if *wanted == 0 {
                     Some(DownloadPriority::DONT_DOWNLOAD)
                 } else if *wanted == *files {
@@ -563,6 +584,121 @@ impl FileTree {
     /// Torrent files that are not pad files.
     pub fn num_files(&self) -> usize {
         self.node_of.iter().filter(|n| n.is_some()).count()
+    }
+
+    /// The Files tab's tree of a torrent in the session, from the engine's file list (paths
+    /// include the torrent's folder, which is left out as in the Add dialog but still matched
+    /// by the filter), with the files' priorities ([`FileTree::set_file_states`]).
+    pub fn from_entries(files: &[FileEntry]) -> FileTree {
+        let split = |p: &str| -> Vec<String> {
+            p.split(['/', '\\']).filter(|s| !s.is_empty()).map(str::to_owned).collect()
+        };
+        // a multi-file torrent: every real file sits below the same first folder
+        let mut root: Option<String> = None;
+        let mut multi = true;
+        for f in files.iter().filter(|f| !f.pad_file) {
+            let parts = split(&f.path);
+            match (parts.len(), &root) {
+                (0 | 1, _) => multi = false,
+                (_, None) => root = Some(parts[0].clone()),
+                (_, Some(r)) if *r != parts[0] => multi = false,
+                _ => {}
+            }
+            if !multi {
+                break;
+            }
+        }
+        let root = if multi { root } else { None };
+        let mut t = FileTree::new(files.iter().map(|f| {
+            let mut parts = split(&f.path);
+            if root.as_ref().is_some_and(|r| parts.len() > 1 && parts[0] == *r) {
+                parts.remove(0);
+            }
+            (parts, f.size, f.pad_file)
+        }));
+        t.root = root.map(|r| r + "/").unwrap_or_default();
+        t.set_file_states(files);
+        t
+    }
+
+    /// Takes the engine's priorities for the same files (a refreshed list of the torrent the
+    /// tree was built from), keeping the folders' expansion and the filter. Priorities are
+    /// shown as µTorrent's three levels ([`crate::detail::priority_text`]), so a folder whose
+    /// files read alike (say 7, 6 and 5 from Prioritize by File Order: all High) is not mixed.
+    pub fn set_file_states(&mut self, files: &[FileEntry]) {
+        for (fi, f) in files.iter().enumerate().take(self.sizes.len()) {
+            let p = f.priority.0;
+            self.wanted[fi] = !f.pad_file && p != 0;
+            self.priority[fi] = match p {
+                0 => DownloadPriority::NORMAL, // shown as Don't Download while unwanted
+                1..=3 => DownloadPriority::LOW,
+                4 => DownloadPriority::NORMAL,
+                _ => DownloadPriority::TOP,
+            };
+        }
+        self.recount();
+    }
+
+    /// Whether `files` are the files this tree was built from (same count, paths and sizes),
+    /// so [`FileTree::set_file_states`] can refresh it in place.
+    pub fn has_files(&self, files: &[FileEntry]) -> bool {
+        files.len() == self.sizes.len()
+            && files.iter().enumerate().all(|(fi, f)| {
+                f.size == self.sizes[fi]
+                    && match self.node_of[fi] {
+                        None => f.pad_file,
+                        Some(n) => {
+                            let parts = f.path.split(['/', '\\']).filter(|s| !s.is_empty());
+                            !f.pad_file && parts.eq(self.node_path(n as usize).split('/'))
+                        }
+                    }
+            })
+    }
+
+    /// Completed bytes per torrent file (the engine's file progress); folders sum them.
+    pub fn set_done(&mut self, done: &[u64]) {
+        for (fi, d) in self.done.iter_mut().enumerate() {
+            *d = done.get(fi).copied().unwrap_or(0);
+        }
+        self.recount();
+    }
+
+    /// Node `n`'s path as the engine names it: the torrent's folder (if any), then the folders
+    /// down to it, `/`-joined.
+    pub fn node_path(&self, n: usize) -> String {
+        let mut names = Vec::new();
+        let mut at = n as u32;
+        while let Some(node) = self.nodes.get(at as usize) {
+            names.push(node.name.as_str());
+            at = node.parent;
+        }
+        names.reverse();
+        let mut path = self.root.clone();
+        path.push_str(&names.join("/"));
+        path
+    }
+
+    /// The node shown in row `i`, for [`FileTree::node_path`] and the node methods.
+    pub fn row_node(&self, i: usize) -> Option<usize> {
+        self.rows.get(i).map(|&n| n as usize)
+    }
+
+    /// The torrent files in the given rows, folders' files recursively (only the shown ones
+    /// while the filter is on), ascending and once each: what a Files tab action applies to.
+    pub fn files_under_rows(&self, rows: &[usize]) -> Vec<u32> {
+        self.files_under_nodes(&self.nodes_of(rows))
+    }
+
+    /// [`FileTree::files_under_rows`] of nodes ([`FileTree::children`]).
+    pub fn files_under_nodes(&self, nodes: &[usize]) -> Vec<u32> {
+        let mut files = Vec::new();
+        for &n in nodes {
+            self.files_of(n, &mut files);
+        }
+        let mut files: Vec<u32> = files.into_iter().map(|f| f as u32).collect();
+        files.sort_unstable();
+        files.dedup();
+        files
     }
 }
 

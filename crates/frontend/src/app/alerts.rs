@@ -151,7 +151,7 @@ impl Core {
                 self.ev.detail = true;
             }
             Alert::FileProgress { id, done } if shown(id) => {
-                self.detail.file_done = done;
+                self.detail.set_file_done(done);
                 self.ev.detail = true;
             }
             Alert::PieceInfo { id, have, availability, downloading } if shown(id) => {

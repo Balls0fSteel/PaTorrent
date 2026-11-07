@@ -1,7 +1,7 @@
 //! The main window's layout as the native macOS GUI keeps it in `rookparcel.ini` (not in AppKit's
 //! autosave, which writes `~/Library/Preferences` even in portable mode): the View toggles and
 //! split sizes under the Win32 GUI's keys (`ui.toolbar`, `ui.tree`, `ui.details`, `ui.status`,
-//! `ui.tree_width`, `ui.detail_height`, `ui.tab`), and what only the Mac has under `ui.mac.*`:
+//! `ui.tree_width`, `ui.detail_height`, `ui.tab`, `ui.files_tree`), and what only the Mac has under `ui.mac.*`:
 //! the window frame (AppKit's own frame string), the toolbar's items and its display mode.
 
 use crate::detail::Tab;
@@ -14,6 +14,7 @@ const STATUS: &str = "ui.status";
 const SIDEBAR_WIDTH: &str = "ui.tree_width";
 const DETAIL_HEIGHT: &str = "ui.detail_height";
 const TAB: &str = "ui.tab";
+const FILES_TREE: &str = crate::detail::FILES_TREE_KEY;
 const FRAME: &str = "ui.mac.frame";
 const TOOLBAR_ITEMS: &str = "ui.mac.toolbar";
 const TOOLBAR_MODE: &str = "ui.mac.toolbar_mode";
@@ -30,6 +31,8 @@ pub struct Layout {
     /// The detail tabs' height in points.
     pub detail_height: Option<f64>,
     pub tab: Tab,
+    /// The Files tab shows the folder tree, not the plain list (D62).
+    pub files_tree: bool,
     /// The window's frame as AppKit writes it (`NSWindow.stringWithSavedFrame`).
     pub frame: Option<String>,
     /// The toolbar's item identifiers in order (`None`: the default toolbar).
@@ -48,6 +51,7 @@ impl Default for Layout {
             sidebar_width: None,
             detail_height: None,
             tab: Tab::General,
+            files_tree: true,
             frame: None,
             toolbar_items: None,
             toolbar_mode: None,
@@ -70,6 +74,7 @@ impl Layout {
             sidebar_width: size(prefs, SIDEBAR_WIDTH),
             detail_height: size(prefs, DETAIL_HEIGHT),
             tab: prefs.get(TAB).and_then(Tab::from_key).unwrap_or(Tab::General),
+            files_tree: prefs.get_bool(FILES_TREE, true),
             frame: prefs.get(FRAME).filter(|f| !f.trim().is_empty()).map(str::to_owned),
             toolbar_items: prefs
                 .get(TOOLBAR_ITEMS)
@@ -92,6 +97,7 @@ impl Layout {
             prefs.set(DETAIL_HEIGHT, h.round() as i32);
         }
         prefs.set(TAB, self.tab.key());
+        prefs.set_bool(FILES_TREE, self.files_tree);
         if let Some(f) = &self.frame {
             prefs.set(FRAME, f);
         }
@@ -124,6 +130,7 @@ mod tests {
             sidebar_width: Some(181.4),
             detail_height: Some(230.0),
             tab: Tab::Files,
+            files_tree: false,
             frame: Some("100 120 1000 640 0 0 1440 875 ".into()),
             toolbar_items: Some(vec![
                 "rp.393216".into(),
@@ -141,6 +148,7 @@ mod tests {
         assert_eq!(p.get("ui.tree_width"), Some("181"));
         assert_eq!(p.get("ui.detail_height"), Some("230"));
         assert_eq!(p.get("ui.tab"), Some("Files"));
+        assert_eq!(p.get("ui.files_tree"), Some("0"));
         assert_eq!(p.get("ui.mac.toolbar"), Some("rp.393216,NSToolbarFlexibleSpaceItem,rp.search"));
         let back = Layout::load(&p);
         assert_eq!(back, Layout { sidebar_width: Some(181.0), ..l });

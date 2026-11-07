@@ -2918,7 +2918,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     lists_changed = true;
                 }
                 Alert::FileProgress { id, done } if a.detail.id == Some(id) => {
-                    a.detail.file_done = done;
+                    a.detail.set_file_done(done);
                     lists_changed = true;
                 }
                 Alert::PieceInfo { id, have, availability, downloading } if a.detail.id == Some(id) => {

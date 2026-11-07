@@ -1736,7 +1736,7 @@ fn on_alerts() {
                     a.detail.trackers = trackers
                 }
                 Alert::FileList { id, files } if a.detail.id == Some(id) => a.detail.set_files(files),
-                Alert::FileProgress { id, done } if a.detail.id == Some(id) => a.detail.file_done = done,
+                Alert::FileProgress { id, done } if a.detail.id == Some(id) => a.detail.set_file_done(done),
                 Alert::PieceInfo { id, have, availability, downloading } if a.detail.id == Some(id) => {
                     a.detail.have = Some(have);
                     a.detail.availability = availability;

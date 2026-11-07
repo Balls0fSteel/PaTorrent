@@ -1176,6 +1176,15 @@ strings! {
     /// The tooltip of the × that empties the filter box (Win32; GTK's search entry has its own).
     FilesFilterClear = "Clear the filter (Esc)";
 
+    // ---- The Files tab's folder tree (D62)
+
+    /// The toggle button beside the filter box: on, the files show in their folders.
+    FilesTree = "Tree view";
+    /// The same toggle as a checked item of the Files tab's right-click menu.
+    MenuFilesTree = "&Tree View";
+    /// The toggle's tooltip and help text.
+    FilesTreeTip = "Show the files in their folders, as Add New Torrent does; off: one list of paths";
+
     // ---- File > Import: torrents from another client; {client} is qBittorrent or µTorrent
 
     MenuImportQbt = "Import from &qBittorrent...";

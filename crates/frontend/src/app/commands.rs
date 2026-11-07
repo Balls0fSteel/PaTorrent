@@ -307,6 +307,14 @@ impl Core {
         changed
     }
 
+    /// Shows the Files tab as the folder tree or the plain list (D62); true when it changed
+    /// (the view reloads). The GUI keeps the choice in [`super::Layout::files_tree`].
+    pub fn set_files_tree(&mut self, on: bool) -> bool {
+        let changed = self.detail.set_files_tree(on);
+        self.ev.detail |= changed;
+        changed
+    }
+
     /// The Files tab's row `row`: the torrent's save path and the file's path (Open, Open
     /// Containing Folder, Relocate). `None` in a remote window.
     pub fn file_path(&self, row: usize) -> Option<(PathBuf, PathBuf)> {
@@ -325,7 +333,7 @@ impl Core {
         let files: Vec<u32> = if prio.is_none() && self.detail.file_filter.is_on() {
             self.detail.all_files()
         } else {
-            rows.iter().filter_map(|&r| self.detail.file_index(r)).collect()
+            self.detail.file_indexes(rows)
         };
         let set = match prio {
             Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),

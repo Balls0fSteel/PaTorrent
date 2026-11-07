@@ -12,6 +12,7 @@ use rookparcel_core::{
     PeerSource, TorrentId, TorrentStatus, TrackerStatus,
 };
 
+use crate::add::FileTree;
 use crate::lang::S;
 use crate::status::status_text;
 use crate::{fmt, tr};
@@ -87,6 +88,10 @@ impl Tab {
     }
 }
 
+/// The preference that keeps the Files tab's view (`1`: the folder tree, the default; `0`:
+/// 2.2.1's plain list), read with `Prefs::get_bool(FILES_TREE_KEY, true)` (D62).
+pub const FILES_TREE_KEY: &str = "ui.files_tree";
+
 /// Lines the Logger keeps.
 pub const LOG_LINES: usize = 1000;
 /// Seconds of speed history.
@@ -104,7 +109,12 @@ pub struct Detail {
     pub file_rows: Vec<u32>,
     /// The Files tab's quick filter (D50). Kept while the selection moves to another torrent.
     pub file_filter: FileFilter,
-    pub file_done: Vec<u64>,
+    /// Completed bytes per file; set with [`Detail::set_file_done`].
+    file_done: Vec<u64>,
+    /// The Files tab shows the plain list of 2.2.1 instead of the folder tree (D62).
+    flat_files: bool,
+    /// The Files tab's folder tree, while it shows one and the file list is known.
+    tree: Option<FileTree>,
     pub have: Option<Bitfield>,
     pub availability: Vec<u32>,
     /// The pieces being downloaded, ascending (the Pieces list).
@@ -124,15 +134,86 @@ impl Detail {
             self.files = None;
             self.file_rows.clear();
             self.file_done.clear();
+            self.tree = None;
             self.have = None;
             self.availability.clear();
             self.partial.clear();
         }
     }
 
+    /// The engine's file list of the selected torrent. A list of the same files again (after a
+    /// priority change) refreshes the tree in place, so collapsed folders stay collapsed.
     pub fn set_files(&mut self, files: Arc<[FileEntry]>) {
         self.file_rows = self.file_filter.rows(&files);
+        if let Some(t) = self.tree.as_mut().filter(|t| t.has_files(&files)) {
+            t.set_file_states(&files);
+        } else {
+            self.tree = (!self.flat_files).then(|| self.build_tree(&files));
+        }
         self.files = Some(files);
+    }
+
+    fn build_tree(&self, files: &[FileEntry]) -> FileTree {
+        let mut t = FileTree::from_entries(files);
+        t.set_done(&self.file_done);
+        t.set_filter(self.file_filter.text());
+        t
+    }
+
+    /// The engine's file progress: completed bytes per file.
+    pub fn set_file_done(&mut self, done: Vec<u64>) {
+        if let Some(t) = &mut self.tree {
+            t.set_done(&done);
+        }
+        self.file_done = done;
+    }
+
+    /// Completed bytes per file, empty until the engine reported them.
+    pub fn file_done(&self) -> &[u64] {
+        &self.file_done
+    }
+
+    /// Whether the Files tab shows the folder tree (the default) rather than 2.2.1's plain
+    /// list of paths (D62).
+    pub fn files_tree(&self) -> bool {
+        !self.flat_files
+    }
+
+    /// Switches the Files tab between the folder tree and the plain list; true when it changed
+    /// (the view must reload its rows). The tree starts with every folder open.
+    pub fn set_files_tree(&mut self, on: bool) -> bool {
+        if self.flat_files != on {
+            return false;
+        }
+        self.flat_files = !on;
+        self.tree = match (&self.files, on) {
+            (Some(files), true) => Some(self.build_tree(files)),
+            _ => None,
+        };
+        true
+    }
+
+    /// The Files tab's tree while it shows one, for views that draw indents and expanders or
+    /// keep their own expansion (macOS's outline view uses its nodes).
+    pub fn file_tree(&self) -> Option<&FileTree> {
+        self.tree.as_ref()
+    }
+
+    /// Row `row` of the Files tab as a tree row (name, depth, folder state); `None` in the
+    /// plain list.
+    pub fn file_tree_row(&self, row: usize) -> Option<crate::add::Row<'_>> {
+        self.tree.as_ref()?.row(row)
+    }
+
+    /// Expands (`Some(true)`), collapses (`Some(false)`) or toggles (`None`) the folder in a
+    /// Files tab row; true when the rows changed. See [`FileTree::set_expanded`].
+    pub fn set_file_folder_expanded(&mut self, row: usize, to: Option<bool>) -> bool {
+        self.tree.as_mut().is_some_and(|t| t.set_expanded(row, to))
+    }
+
+    /// The row of the folder holding a Files tab row (tree only), for Left on a file.
+    pub fn file_parent_row(&self, row: usize) -> Option<usize> {
+        self.tree.as_ref()?.parent_row(row)
     }
 
     /// Sets the Files tab's filter text; true when the visible rows may have changed.
@@ -143,7 +224,25 @@ impl Detail {
         if let Some(files) = &self.files {
             self.file_rows = self.file_filter.rows(files);
         }
+        if let Some(t) = &mut self.tree {
+            t.set_filter(text);
+        }
         true
+    }
+
+    /// The files (indices into the torrent's file list) in the given Files tab rows, ascending
+    /// and once each: a folder row stands for its shown files. What the menu's priorities,
+    /// Prioritize by File Order and Ctrl+A's selection act on.
+    pub fn file_indexes(&self, rows: &[usize]) -> Vec<u32> {
+        match &self.tree {
+            Some(t) => t.files_under_rows(rows),
+            None => {
+                let mut v: Vec<u32> = rows.iter().filter_map(|&r| self.file_rows.get(r).copied()).collect();
+                v.sort_unstable();
+                v.dedup();
+                v
+            }
+        }
     }
 
     /// The torrent's files without pad files, for "Prioritize by File Order", which orders the
@@ -188,7 +287,7 @@ impl Detail {
             Tab::Trackers => self.trackers.len(),
             Tab::Peers => self.peers.len(),
             Tab::Pieces => self.partial.len(),
-            Tab::Files => self.file_rows.len(),
+            Tab::Files => self.tree.as_ref().map_or(self.file_rows.len(), FileTree::len),
             Tab::Logger => self.log.len(),
             _ => 0,
         }
@@ -199,26 +298,75 @@ impl Detail {
             Tab::Trackers => self.trackers.get(row).map(|t| tracker_cell(t, col)),
             Tab::Peers => self.peers.get(row).map(|p| peer_cell(p, col)),
             Tab::Pieces => self.partial.get(row).map(|p| piece_cell(p, col)),
-            Tab::Files => self.file_rows.get(row).and_then(|&i| {
-                let f = self.files.as_ref()?.get(i as usize)?;
-                Some(file_cell(f, self.file_done.get(i as usize).copied(), col))
-            }),
+            Tab::Files => match &self.tree {
+                Some(t) => t.row_node(row).map(|n| self.file_node_cell(n, col)),
+                None => self.file_rows.get(row).and_then(|&i| {
+                    let f = self.files.as_ref()?.get(i as usize)?;
+                    Some(file_cell(f, self.file_done.get(i as usize).copied(), col))
+                }),
+            },
             Tab::Logger => self.log.get(row).cloned(),
             _ => None,
         }
         .unwrap_or_default()
     }
 
-    /// File index (into the torrent's file list) of a Files tab row.
-    pub fn file_index(&self, row: usize) -> Option<u32> {
-        self.file_rows.get(row).copied()
+    /// A Files tab cell of tree node `node` ([`FileTree::children`]): a file's name (not its
+    /// path) and columns, or a folder's sums (size, done, %), its one priority or "Mixed",
+    /// and no piece columns.
+    pub fn file_node_cell(&self, node: usize, col: usize) -> String {
+        let Some(r) = self.tree.as_ref().and_then(|t| t.node(node)) else { return String::new() };
+        let done = (!self.file_done.is_empty()).then_some(r.done);
+        if let Some(fi) = r.file {
+            let Some(f) = self.files.as_ref().and_then(|f| f.get(fi)) else { return String::new() };
+            return match col {
+                0 => r.name.to_owned(),
+                _ => file_cell(f, done, col),
+            };
+        }
+        match col {
+            0 => r.name.to_owned(),
+            1 => fmt::size(r.size),
+            2 => done.map(fmt::size).unwrap_or_default(),
+            3 => done.map(|d| percent_text(d, r.size)).unwrap_or_default(),
+            6 => match r.priority {
+                Some(p) => priority_text(p).to_owned(),
+                None => tr!(AddMixed).to_owned(),
+            },
+            _ => String::new(),
+        }
     }
 
-    /// Where a Files tab row's file is on disk, for Open and Open Containing Folder; see
-    /// [`file_path`].
+    /// File index (into the torrent's file list) of a Files tab row; `None` for a folder.
+    pub fn file_index(&self, row: usize) -> Option<u32> {
+        match &self.tree {
+            Some(t) => t.row(row)?.file.map(|f| f as u32),
+            None => self.file_rows.get(row).copied(),
+        }
+    }
+
+    /// Where a Files tab row's file (or folder, in the tree) is on disk, for Open and Open
+    /// Containing Folder; see [`file_path`].
     pub fn file_path(&self, row: usize, save_path: &str) -> Option<PathBuf> {
+        if let Some(t) = &self.tree {
+            return file_path(save_path, &t.node_path(t.row_node(row)?));
+        }
         let i = *self.file_rows.get(row)? as usize;
         file_path(save_path, &self.files.as_ref()?.get(i)?.path)
+    }
+
+    /// How many files the filter shows (all but pad files without one).
+    pub fn shown_files(&self) -> usize {
+        self.file_rows.len()
+    }
+}
+
+/// "99.9 %": rounded down, so only a complete file reads 100.
+fn percent_text(done: u64, size: u64) -> String {
+    if size > 0 {
+        format!("{:.1} %", (done as f64 / size as f64 * 1000.0).floor() / 10.0)
+    } else {
+        "100.0 %".to_owned()
     }
 }
 
@@ -606,11 +754,7 @@ pub fn file_cell(f: &FileEntry, done: Option<u64>, col: usize) -> String {
         0 => f.path.clone(),
         1 => fmt::size(f.size),
         2 => done.map(fmt::size).unwrap_or_default(),
-        3 => match done {
-            Some(d) if f.size > 0 => format!("{:.1} %", (d as f64 / f.size as f64 * 1000.0).floor() / 10.0),
-            Some(_) => "100.0 %".to_owned(),
-            None => String::new(),
-        },
+        3 => done.map(|d| percent_text(d, f.size)).unwrap_or_default(),
         4 => (f.last_piece - f.first_piece + 1).to_string(),
         5 => f.first_piece.to_string(),
         6 => priority_text(f.priority).to_owned(),
@@ -829,6 +973,7 @@ mod tests {
         let files: Arc<[FileEntry]> =
             Arc::from(vec![file("a/one.mkv", false), file("pad", true), file("b/two.mkv", false)]);
         let mut d = Detail::default();
+        d.set_files_tree(false);
         assert!(d.set_file_filter("TWO"), "a filter before any file list");
         d.set_files(files.clone());
         assert_eq!((d.rows(Tab::Files), d.file_index(0)), (1, Some(2)));
@@ -844,6 +989,148 @@ mod tests {
         assert_eq!((d.rows(Tab::Files), d.file_index(1)), (2, Some(2)));
         assert_eq!(d.file_filter_count(), "", "no count without a filter");
         assert!(!d.set_file_filter(""));
+    }
+
+    fn entry(path: &str, size: u64, prio: u8, pad_file: bool) -> FileEntry {
+        FileEntry {
+            path: path.into(),
+            size,
+            offset: 0,
+            first_piece: 0,
+            last_piece: 0,
+            pad_file,
+            priority: DownloadPriority(prio),
+        }
+    }
+
+    /// Show/Season 1/{e01,e02}.mkv, Show/Subs/e01.srt, a pad file, Show/info.nfo.
+    fn show() -> Arc<[FileEntry]> {
+        Arc::from(vec![
+            entry("Show/Season 1/e01.mkv", 1000, 4, false),
+            entry("Show/Season 1/e02.mkv", 3000, 7, false),
+            entry("Show/.pad/12", 12, 0, true),
+            entry("Show/Subs/e01.srt", 10, 0, false),
+            entry("Show/info.nfo", 5, 2, false),
+        ])
+    }
+
+    fn names(d: &Detail) -> Vec<String> {
+        (0..d.rows(Tab::Files)).map(|r| d.cell(Tab::Files, r, 0)).collect()
+    }
+
+    #[test]
+    fn the_files_tab_shows_a_folder_tree_by_default() {
+        let mut d = Detail::default();
+        assert!(d.files_tree());
+        d.set_files(show());
+        // the torrent's folder is left out, as in the Add dialog
+        assert_eq!(names(&d), ["Season 1", "e01.mkv", "e02.mkv", "Subs", "e01.srt", "info.nfo"]);
+        let season = d.file_tree_row(0).unwrap();
+        assert_eq!((season.folder, season.depth), (Some(true), 0));
+        assert_eq!(d.file_tree_row(1).unwrap().depth, 1);
+        assert_eq!(d.cell(Tab::Files, 0, 1), fmt::size(4000));
+        assert_eq!(d.cell(Tab::Files, 0, 2), "", "no progress yet");
+        assert_eq!(d.cell(Tab::Files, 0, 4), "", "no piece columns for folders");
+        assert_eq!(d.cell(Tab::Files, 0, 6), "Mixed", "Normal and High");
+        assert_eq!(d.cell(Tab::Files, 3, 6), "Don't Download");
+        assert_eq!(d.cell(Tab::Files, 5, 6), "Low");
+        assert_eq!(d.cell(Tab::Files, 1, 4), "1", "files keep their columns");
+        assert_eq!((d.file_index(0), d.file_index(2), d.file_index(5)), (None, Some(1), Some(4)));
+
+        d.set_file_done(vec![500, 3000, 0, 10, 0]);
+        assert_eq!(d.file_done(), [500, 3000, 0, 10, 0]);
+        assert_eq!(d.cell(Tab::Files, 0, 2), fmt::size(3500));
+        assert_eq!(d.cell(Tab::Files, 0, 3), "87.5 %");
+        assert_eq!(d.cell(Tab::Files, 1, 3), "50.0 %");
+
+        // actions on a folder take its files
+        assert_eq!(d.file_indexes(&[0]), [0, 1]);
+        assert_eq!(d.file_indexes(&[5, 0, 1]), [0, 1, 4], "ascending, once each");
+        let all: Vec<usize> = (0..d.rows(Tab::Files)).collect();
+        assert_eq!(d.file_indexes(&all), d.all_files());
+        let save = if cfg!(windows) { r"C:\dl" } else { "/dl" };
+        assert_eq!(d.file_path(0, save), Some(PathBuf::from(save).join("Show").join("Season 1")));
+        assert_eq!(d.file_path(4, save), Some(PathBuf::from(save).join("Show").join("Subs").join("e01.srt")));
+        assert_eq!(d.file_parent_row(4), Some(3));
+    }
+
+    #[test]
+    fn the_tree_keeps_collapsed_folders_when_priorities_change() {
+        let mut d = Detail::default();
+        d.set_files(show());
+        assert!(d.set_file_folder_expanded(0, Some(false)));
+        assert_eq!(names(&d), ["Season 1", "Subs", "e01.srt", "info.nfo"]);
+        // the engine reads the list back after Normal on the folder: same files, new priorities
+        let mut again = show().to_vec();
+        again[1].priority = DownloadPriority::NORMAL;
+        d.set_files(again.clone().into());
+        assert_eq!(names(&d), ["Season 1", "Subs", "e01.srt", "info.nfo"], "still collapsed");
+        assert_eq!(d.cell(Tab::Files, 0, 6), "Normal");
+        // levels that read alike are not mixed (Prioritize by File Order gives 7, 6, 5)
+        again[0].priority = DownloadPriority(7);
+        again[1].priority = DownloadPriority(6);
+        d.set_files(again.clone().into());
+        assert_eq!(d.cell(Tab::Files, 0, 6), "High");
+        // a renamed file (Relocate) is another list: the tree starts again, all open
+        again[3].path = "Show/Subs/e01.eng.srt".into();
+        d.set_files(again.into());
+        assert_eq!(names(&d)[..3], ["Season 1", "e01.mkv", "e02.mkv"]);
+        assert_eq!(d.cell(Tab::Files, 4, 0), "e01.eng.srt");
+        // another torrent starts again
+        d.set_file_folder_expanded(0, Some(false));
+        d.select(Some(TorrentId::from_raw(3)));
+        assert_eq!(d.rows(Tab::Files), 0);
+        d.set_files(show());
+        assert_eq!(d.rows(Tab::Files), 6);
+    }
+
+    #[test]
+    fn the_filter_and_the_toggle_in_the_tree() {
+        let mut d = Detail::default();
+        d.set_files(show());
+        d.set_file_folder_expanded(3, Some(false));
+        assert!(d.set_file_filter("e01"));
+        assert_eq!(names(&d), ["Season 1", "e01.mkv", "Subs", "e01.srt"], "folders open while filtering");
+        assert_eq!(d.file_filter_count(), "2 of 4 files");
+        assert_eq!(d.file_indexes(&[0]), [0], "a folder stands for its shown files");
+        // the torrent's folder is part of every path, as in the plain list
+        d.set_file_filter("show nfo");
+        assert_eq!(names(&d), ["info.nfo"]);
+        d.set_file_filter("");
+        assert_eq!(names(&d), ["Season 1", "e01.mkv", "e02.mkv", "Subs", "info.nfo"], "Subs stays collapsed");
+
+        // the plain list of 2.2.1
+        assert!(d.set_files_tree(false) && !d.set_files_tree(false));
+        assert!(!d.files_tree() && d.file_tree_row(0).is_none());
+        assert_eq!(
+            names(&d),
+            ["Show/Season 1/e01.mkv", "Show/Season 1/e02.mkv", "Show/Subs/e01.srt", "Show/info.nfo"]
+        );
+        assert_eq!(d.file_indexes(&[3, 0, 0]), [0, 4]);
+        // the list comes back with the filter, the progress and every folder open
+        d.set_file_done(vec![1000, 0, 0, 0, 0]);
+        d.set_file_filter("mkv");
+        assert!(d.set_files_tree(true));
+        assert_eq!(names(&d), ["Season 1", "e01.mkv", "e02.mkv"]);
+        assert_eq!(d.cell(Tab::Files, 1, 3), "100.0 %");
+        // no tree is built in the plain list
+        d.set_files_tree(false);
+        d.set_files(show());
+        assert!(d.file_tree().is_none());
+    }
+
+    #[test]
+    fn single_file_and_flat_torrents_in_the_tree() {
+        let mut d = Detail::default();
+        d.set_files(Arc::from(vec![entry("ubuntu.iso", 7, 4, false)]));
+        assert_eq!(names(&d), ["ubuntu.iso"]);
+        let save = if cfg!(windows) { r"C:\dl" } else { "/dl" };
+        assert_eq!(d.file_path(0, save), Some(PathBuf::from(save).join("ubuntu.iso")));
+        // files under different top folders keep them all
+        d.select(Some(TorrentId::from_raw(1)));
+        d.set_files(Arc::from(vec![entry("a/x", 1, 4, false), entry("b/y", 1, 4, false)]));
+        assert_eq!(names(&d), ["a", "x", "b", "y"]);
+        assert_eq!(d.file_path(3, save), Some(PathBuf::from(save).join("b").join("y")));
     }
 
     /// Open stays inside the save path whatever the torrent's file paths are.

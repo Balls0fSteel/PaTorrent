@@ -57,8 +57,8 @@ use windows_sys::Win32::System::Time::SystemTimeToFileTime;
 use windows_sys::Win32::UI::Controls::*;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, SystemParametersInfoForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetFocus, GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE,
-    VK_RETURN,
+    GetFocus, GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_ADD, VK_CONTROL, VK_DELETE, VK_DOWN,
+    VK_ESCAPE, VK_LEFT, VK_RETURN, VK_RIGHT, VK_SUBTRACT,
 };
 use windows_sys::Win32::UI::Shell::{
     DragAcceptFiles, DragFinish, DragQueryFileW, FOLDERID_Downloads, HDROP, SHGetKnownFolderPath,
@@ -253,6 +253,8 @@ const FILES_COUNT_STYLE: u32 = 0x2 | 0x200 | 0x80;
 const IDC_PAGE: usize = 20;
 /// The pieces list inside the Pieces panel.
 const IDC_PIECE_LIST: usize = 30;
+/// The Files tab's Tree View box left of its filter: the folder tree or the plain list (D62).
+const IDC_FILES_TREE: usize = 31;
 /// Tree item parameters from here on are the Feeds branch (`App::feed_tree` index).
 const FEED_PARAM: usize = 1_000_000;
 
@@ -317,6 +319,8 @@ mod cmd {
     pub const PROFILE_FOLDER: u16 = 153;
     /// Options > Setup Guide (D53), Ctrl+G.
     pub const SETUP_GUIDE: u16 = 154;
+    /// The Files tab's menu: Tree View, as its box beside the filter (D62).
+    pub const FILES_TREE: u16 = 155;
     /// File > Profiles' list, by `profile::menu` index (at most 256 entries).
     pub const PROFILE_BASE: u16 = 3700;
     pub const LABEL_BASE: u16 = 1000;
@@ -416,6 +420,9 @@ struct App {
     files_clear: HWND,
     files_count: HWND,
     files_count_text: String,
+    /// The Tree View box left of the filter (D62), and the tree's folder and file icons.
+    files_tree: HWND,
+    file_icons: crate::add::ShellIcons,
 
     show_toolbar: bool,
     show_details: bool,
@@ -1243,6 +1250,27 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             child(hwnd, w!("BUTTON"), "\u{00d7}", WS_CHILD | BS_PUSHBUTTON as u32, 0, IDC_FILES_CLEAR);
         crate::help::control_tip(hwnd, files_clear, tr!(FilesFilterClear));
         let files_count = child(hwnd, w!("STATIC"), "", WS_CHILD | FILES_COUNT_STYLE, 0, IDC_FILES_COUNT);
+        // and Tree View on the box's left (D62): the files in their folders, or one list
+        let files_tree_box = child(
+            hwnd,
+            w!("BUTTON"),
+            tr!(FilesTree),
+            WS_CHILD | WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+            0,
+            IDC_FILES_TREE,
+        );
+        crate::help::control_tip(hwnd, files_tree_box, tr!(FilesTreeTip));
+        let mut detail = Detail::default();
+        detail.set_files_tree(prefs.get_bool(detail::FILES_TREE_KEY, true));
+        let file_icons = crate::add::ShellIcons::load();
+        let files_lv = pages[Page::Files.index()];
+        file_icons.set_on(files_lv, detail.files_tree());
+        send(
+            files_tree_box,
+            BM_SETCHECK,
+            if detail.files_tree() { BST_CHECKED } else { BST_UNCHECKED } as usize,
+            0,
+        );
         let status =
             child(hwnd, STATUSCLASSNAMEW, "", WS_CHILD | SBARS_SIZEGRIP | SBARS_TOOLTIPS, 0, IDC_STATUS);
 
@@ -1320,12 +1348,14 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             files_clear,
             files_count,
             files_count_text: String::new(),
+            files_tree: files_tree_box,
+            file_icons,
             split_tree: zeroed(),
             split_details: zeroed(),
             drag: None,
             shown: Vec::new(),
             page,
-            detail: Detail::default(),
+            detail,
             files_requested: None,
             tree_items: Vec::new(),
             tree_texts: Vec::new(),
@@ -1559,8 +1589,17 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
                 std::mem::replace(&mut a.nav_images, nav_images),
             );
             a.net_shown = None;
-            let mut list =
-                vec![a.tree, a.lv, a.tabs, a.status, a.search, a.files_filter, a.files_clear, a.files_count];
+            let mut list = vec![
+                a.tree,
+                a.lv,
+                a.tabs,
+                a.status,
+                a.search,
+                a.files_filter,
+                a.files_clear,
+                a.files_count,
+                a.files_tree,
+            ];
             list.extend(a.pages);
             (old, old_states, list, a.toolbar, a.pages[Page::Trackers.index()])
         }) else {
@@ -1692,6 +1731,7 @@ unsafe fn layout(hwnd: HWND) {
                     a.files_count,
                     a.files_clear,
                     a.detail.file_filter.is_on(),
+                    a.files_tree,
                 ),
             )
         }) else {
@@ -1713,7 +1753,7 @@ unsafe fn layout(hwnd: HWND) {
             detail_h,
             dpi,
             notice,
-            (search, search_menu, files_filter, files_count, files_clear, filtering),
+            (search, search_menu, files_filter, files_count, files_clear, filtering, files_tree),
         ) = a;
         let mut files_bar = false;
         let mut rc: RECT = zeroed();
@@ -1777,8 +1817,13 @@ unsafe fn layout(hwnd: HWND) {
                 } else {
                     ShowWindow(files_clear, SW_HIDE);
                 }
-                let cw = scale(240, dpi).min((x - area.left - gap).max(0));
-                SetWindowPos(files_count, HWND_TOP, x - gap - cw, area.top, cw, h, SWP_SHOWWINDOW);
+                // Tree View on the box's left (D62): its text and the check box before it
+                let tw = (text_width(files_tree, tr!(FilesTree)) + scale(24, dpi))
+                    .min((x - area.left - gap).max(0));
+                let tx = x - gap - tw;
+                SetWindowPos(files_tree, HWND_TOP, tx, area.top, tw, h, SWP_SHOWWINDOW);
+                let cw = scale(240, dpi).min((tx - area.left - gap).max(0));
+                SetWindowPos(files_count, HWND_TOP, tx - gap - cw, area.top, cw, h, SWP_SHOWWINDOW);
                 area.top = (area.top + h + gap / 2).min(area.bottom);
             }
             for p in Page::ALL {
@@ -1804,6 +1849,7 @@ unsafe fn layout(hwnd: HWND) {
             ShowWindow(files_filter, SW_HIDE);
             ShowWindow(files_clear, SW_HIDE);
             ShowWindow(files_count, SW_HIDE);
+            ShowWindow(files_tree, SW_HIDE);
         }
         let mut split_tree: RECT = zeroed();
         let mut left = rc.left;
@@ -2478,6 +2524,84 @@ fn on_files_filter() {
             controls::set_state(files_lv, None, false, false);
             update_detail_lists();
         }
+    }
+}
+
+// ---- The Files tab's folder tree (D62) ---------------------------------------------------
+
+/// Tree View (the box left of the filter, the menu's item): the Files tab shows the files in
+/// their folders, every folder open, or 2.2.1's one list of paths; kept as `ui.files_tree`.
+/// The selection is by row, so it is dropped.
+fn set_files_tree(on: bool) {
+    let Some((changed, lv, check)) = with_app(|a| {
+        let changed = a.detail.set_files_tree(on);
+        a.prefs.set_bool(detail::FILES_TREE_KEY, on);
+        (changed, a.pages[Page::Files.index()], a.files_tree)
+    }) else {
+        return;
+    };
+    unsafe {
+        send(check, BM_SETCHECK, if on { BST_CHECKED } else { BST_UNCHECKED } as usize, 0);
+        if !changed {
+            return;
+        }
+        // the icons only in the tree: the plain list keeps 2.2.1's look
+        with_app(|a| a.file_icons.set_on(lv, on));
+        controls::set_state(lv, None, false, false);
+        update_detail_lists();
+        if send(lv, LVM_GETITEMCOUNT, 0, 0) > 0 {
+            controls::set_state(lv, Some(0), false, true);
+            send(lv, LVM_ENSUREVISIBLE, 0, 0);
+        }
+        InvalidateRect(lv, null(), 1);
+    }
+}
+
+/// Expands (`Some(true)`), collapses (`Some(false)`) or toggles (`None`) the Files tab's folder
+/// in row `row`; when the rows changed, the list takes their new count with that row selected
+/// and focused. True when they changed.
+fn files_folder(row: usize, to: Option<bool>) -> bool {
+    let Some((changed, lv)) =
+        with_app(|a| (a.detail.set_file_folder_expanded(row, to), a.pages[Page::Files.index()]))
+    else {
+        return false;
+    };
+    if changed {
+        unsafe {
+            update_detail_lists();
+            controls::set_state(lv, None, false, false);
+            controls::set_state(lv, Some(row), true, true);
+            send(lv, LVM_ENSUREVISIBLE, row, 0);
+        }
+    }
+    changed
+}
+
+/// The Files tab's keys in the tree, as in Add New Torrent's list: Right and + open the
+/// focused folder, Left and - close it, Left on a file or a closed folder goes to the folder
+/// holding it.
+unsafe fn files_key(lv: HWND, key: u16) {
+    let Some(row) = (unsafe { controls::focused(lv) }) else { return };
+    if with_app(|a| a.detail.files_tree()) != Some(true) {
+        return;
+    }
+    match key {
+        k if k == VK_RIGHT || k == VK_ADD => {
+            files_folder(row, Some(true));
+        }
+        k if k == VK_LEFT || k == VK_SUBTRACT => {
+            if files_folder(row, Some(false)) || k != VK_LEFT {
+                return;
+            }
+            if let Some(Some(parent)) = with_app(|a| a.detail.file_parent_row(row)) {
+                unsafe {
+                    controls::set_state(lv, None, false, false);
+                    controls::set_state(lv, Some(parent), true, true);
+                    send(lv, LVM_ENSUREVISIBLE, parent, 0);
+                }
+            }
+        }
+        _ => {}
     }
 }
 
@@ -3174,9 +3298,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 0
             }
-            // the Files filter's count sits on the tab's body: white with visual styles, the
-            // dialog colour without
-            WM_CTLCOLORSTATIC if with_app(|a| a.files_count == lparam as HWND) == Some(true) => {
+            // the Files filter's count and Tree View sit on the tab's body: white with visual
+            // styles, the dialog colour without
+            WM_CTLCOLORSTATIC
+                if with_app(|a| a.files_count == lparam as HWND || a.files_tree == lparam as HWND)
+                    == Some(true) =>
+            {
                 let color = if IsAppThemed() != 0 { COLOR_WINDOW } else { COLOR_BTNFACE };
                 SetBkColor(wparam as HDC, GetSysColor(color));
                 SetTextColor(wparam as HDC, GetSysColor(COLOR_WINDOWTEXT));
@@ -3188,6 +3315,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 if let Some(filter) = with_app(|a| a.files_filter) {
                     SetWindowTextW(filter, w!(""));
                     SetFocus(filter);
+                }
+                0
+            }
+            WM_COMMAND if crate::util::loword(wparam) as usize == IDC_FILES_TREE => {
+                // an auto check box: it has already changed
+                if crate::util::hiword(wparam) as u32 == BN_CLICKED {
+                    let on = send(lparam as HWND, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
+                    set_files_tree(on);
                 }
                 0
             }
@@ -3714,13 +3849,26 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
 unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
     unsafe {
         let rows = controls::selected(files_lv);
+        let Some((tree, relocatable)) = with_app(|a| {
+            // Relocate moves one file: not a folder of the tree
+            let one_file = rows.len() == 1 && a.detail.file_index(rows[0]).is_some();
+            (a.detail.files_tree(), one_file)
+        }) else {
+            return;
+        };
+        let menu = CreatePopupMenu();
         if rows.is_empty() {
+            // nothing to act on: only the view's toggle
+            append_flags(menu, checked(tree), cmd::FILES_TREE, tr!(MenuFilesTree));
+            let id = popup(hwnd, menu, p.x, p.y);
+            if id == cmd::FILES_TREE {
+                on_command(hwnd, id);
+            }
             return;
         }
         // as µTorrent 2.2.1's (but for Scan for Viruses: there is no scanner to run); a remote
         // window's files are on the other machine
         let local = !crate::remote_ui::is_remote();
-        let menu = CreatePopupMenu();
         if local {
             append(menu, cmd::FILE_OPEN, tr!(MenuOpenFile));
             append(menu, cmd::FILE_OPEN_FOLDER, tr!(MenuOpenFolder));
@@ -3737,14 +3885,17 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
         append(menu, cmd::FILE_PRIO_BASE + levels.len() as u16, detail::priority_text(skip[0].1));
         if local {
             separator(menu);
-            append_flags(menu, grayed(rows.len() != 1), cmd::FILE_RELOCATE, tr!(MenuRelocate));
+            append_flags(menu, grayed(!relocatable), cmd::FILE_RELOCATE, tr!(MenuRelocate));
         }
+        separator(menu);
+        append_flags(menu, checked(tree), cmd::FILES_TREE, tr!(MenuFilesTree));
         let id = popup(hwnd, menu, p.x, p.y);
         let prio = match id {
             cmd::FILE_OPEN | cmd::FILE_OPEN_FOLDER => {
                 return open_file(hwnd, rows[0], id == cmd::FILE_OPEN_FOLDER);
             }
             cmd::FILE_RELOCATE => return relocate_file(hwnd, rows[0]),
+            cmd::FILES_TREE => return on_command(hwnd, id),
             cmd::FILE_BY_ORDER => None,
             _ => match PRIORITIES.get(id.wrapping_sub(cmd::FILE_PRIO_BASE) as usize) {
                 Some(&(_, prio)) => Some(prio),
@@ -3754,7 +3905,8 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
         with_app(|a| {
             let Some(tid) = a.detail.id else { return };
             let t = a.handle.torrent(tid);
-            let files: Vec<u32> = rows.iter().filter_map(|&r| a.detail.file_index(r)).collect();
+            // a folder row stands for its files (those the filter shows)
+            let files = a.detail.file_indexes(&rows);
             let set = match prio {
                 Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
                 // a torrent-wide order: the filter does not narrow it (D50)
@@ -3797,8 +3949,8 @@ unsafe fn relocate_file(hwnd: HWND, row: usize) {
 }
 
 /// The Files tab's Open (a double click, Enter, the menu) and Open Containing Folder for its
-/// row `row`. Open hands the file to the shell as Explorer's double click does (its default
-/// program); a file not on disk yet does nothing. The folder is the nearest one inside the save
+/// row `row`. Open hands the file (or a tree's folder) to the shell as Explorer's double click
+/// does (its default program); a file not on disk yet does nothing. The folder is the nearest one inside the save
 /// path that exists, with the file selected once it does.
 unsafe fn open_file(hwnd: HWND, row: usize, folder: bool) {
     if crate::remote_ui::is_remote() {
@@ -3815,7 +3967,8 @@ unsafe fn open_file(hwnd: HWND, row: usize, folder: bool) {
         if folder {
             let shown = path.ancestors().skip(1).take_while(|p| p.starts_with(&save)).find(|p| p.is_dir());
             show_in_explorer(&path, shown.unwrap_or(&save));
-        } else if path.is_file() {
+        } else if path.is_file() || path.is_dir() {
+            // a folder of the tree (D62) opens in Explorer
             use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
             let com = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32) >= 0;
             let dir = path.parent().map(|d| wide(&d.to_string_lossy()));
@@ -3953,8 +4106,10 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 update_menu(hwnd);
             }
             cmd::TRAY_TOGGLE => toggle_window(hwnd),
+            cmd::FILES_TREE => set_files_tree(with_app(|a| !a.detail.files_tree()).unwrap_or(true)),
             cmd::SELECT_ALL => {
-                // in the Files tab: its files, only those the filter shows (D50)
+                // in the Files tab: its rows, only those the filter shows (D50); the actions
+                // take a folder's files once each (`Detail::file_indexes`)
                 let files = focus_in_files();
                 if let Some(lv) = with_app(|a| if files { a.pages[Page::Files.index()] } else { a.lv }) {
                     controls::set_state(lv, None, true, false);
@@ -5297,10 +5452,13 @@ mod search_tests {
             let mut prefs = Prefs::default();
             prefs.set_bool("ui.show_add_dialog", false);
             prefs.set("dir.download", std::env::temp_dir().to_string_lossy());
+            // the plain list of paths (the tree has its own test)
+            prefs.set_bool(detail::FILES_TREE_KEY, false);
             init(hwnd, session, prefs);
             select_page(Page::Files);
             let (filter, count, lv) =
                 with_app(|a| (a.files_filter, a.files_count, a.pages[Page::Files.index()])).unwrap();
+            assert_eq!(with_app(|a| a.detail.files_tree()), Some(false), "the pref is read");
             assert_eq!(cue(filter), "Filter files");
             assert!(IsWindowVisible(filter) == 0 || with_app(|a| a.show_details) == Some(true));
             let files: Arc<[rookparcel_core::FileEntry]> = Arc::from(vec![
@@ -5365,6 +5523,169 @@ mod search_tests {
             with_app(|a| a.detail.select(Some(TorrentId::from_raw(99))));
             assert_eq!(with_app(|a| a.detail.file_filter.text().to_owned()).as_deref(), Some("srt"));
             DestroyWindow(hwnd);
+        }
+    }
+
+    /// The Files tab's folder tree (D62), through the window's own messages: the default view,
+    /// indents and icons, Left / Right, a click on a folder's icon and an activation (double
+    /// click, Enter) folding folders, Left on a file going to its folder, type-ahead by name,
+    /// Tree View's box and menu item switching to the plain list and back. Everything is
+    /// noted first and checked once the window is gone (a failed check must not leave it).
+    #[test]
+    fn the_files_tab_folds_its_folder_tree() {
+        unsafe {
+            let icc = INITCOMMONCONTROLSEX {
+                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
+                dwICC: ICC_WIN95_CLASSES
+                    | ICC_BAR_CLASSES
+                    | ICC_TAB_CLASSES
+                    | ICC_LISTVIEW_CLASSES
+                    | ICC_TREEVIEW_CLASSES,
+            };
+            InitCommonControlsEx(&icc);
+            let instance = GetModuleHandleW(null());
+            let mut wc: WNDCLASSEXW = zeroed();
+            wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = instance;
+            wc.lpszClassName = w!("RookparcelFilesTreeTestWnd");
+            RegisterClassExW(&wc);
+            wc.lpfnWndProc = Some(panel_proc);
+            wc.lpszClassName = PANEL_CLASS;
+            RegisterClassExW(&wc);
+            let hwnd = CreateWindowExW(
+                0,
+                w!("RookparcelFilesTreeTestWnd"),
+                w!("Rookparcel files tree test"),
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                0,
+                0,
+                900,
+                600,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            assert!(!hwnd.is_null());
+            let session = Session::start_mock(
+                Settings::default(),
+                MockConfig { initial_torrents: 0, active_fraction: 0.0, ..MockConfig::default() },
+            );
+            let mut prefs = Prefs::default();
+            prefs.set_bool("ui.show_add_dialog", false);
+            init(hwnd, session, prefs);
+            select_page(Page::Files);
+            let (lv, check) = with_app(|a| (a.pages[Page::Files.index()], a.files_tree)).unwrap();
+            let files: Arc<[rookparcel_core::FileEntry]> = Arc::from(vec![
+                file("Show/Season 1/e01.mkv", false),
+                file("Show/Season 1/e02.mkv", false),
+                file("Show/.pad/0", true),
+                file("Show/info.nfo", false),
+            ]);
+            with_app(|a| a.detail.set_files(files));
+            update_detail_lists();
+
+            let count = || send(lv, LVM_GETITEMCOUNT, 0, 0);
+            let checked = || send(check, BM_GETCHECK, 0, 0) == BST_CHECKED as isize;
+            let indent = |row: usize| {
+                let mut it: LVITEMW = zeroed();
+                it.mask = LVIF_INDENT | LVIF_IMAGE;
+                it.iItem = row as i32;
+                send(lv, LVM_GETITEMW, 0, &mut it as *mut _ as LPARAM);
+                (it.iIndent, it.iImage >= 0)
+            };
+            let key = |vk: u16| {
+                SendMessageW(lv, WM_KEYDOWN, vk as WPARAM, 0);
+            };
+            let focus = |row: usize| {
+                controls::set_state(lv, None, false, false);
+                controls::set_state(lv, Some(row), true, true);
+            };
+            // where row 0's text starts: after its icon in the tree, at the edge in the list
+            let label_left = || {
+                let mut r: RECT = zeroed();
+                r.left = LVIR_LABEL as i32;
+                send(lv, LVM_GETITEMRECT, 0, &mut r as *mut _ as LPARAM);
+                r.left
+            };
+            let notify = |code: u32, row: usize, pt: POINT| {
+                let mut ia: NMITEMACTIVATE = zeroed();
+                ia.hdr = NMHDR { hwndFrom: lv, idFrom: IDC_PAGE + Page::Files.index(), code };
+                ia.iItem = row as i32;
+                ia.ptAction = pt;
+                SendMessageW(hwnd, WM_NOTIFY, ia.hdr.idFrom, &ia as *const _ as LPARAM);
+            };
+            // the tree by default, every folder open; the torrent's folder is left out
+            let start = (count(), checked(), indent(0), indent(1), indent(3));
+            let tree_label = label_left();
+            // Left closes the focused folder, Right opens it
+            focus(0);
+            key(VK_LEFT);
+            let closed = count();
+            key(VK_RIGHT);
+            let opened = count();
+            // a click on the folder's icon closes it, another opens it
+            let mut icon: RECT = zeroed();
+            icon.left = LVIR_ICON as i32;
+            send(lv, LVM_GETITEMRECT, 0, &mut icon as *mut _ as LPARAM);
+            let on_icon = POINT { x: (icon.left + icon.right) / 2, y: (icon.top + icon.bottom) / 2 };
+            notify(NM_CLICK, 0, on_icon);
+            let clicked = count();
+            notify(NM_CLICK, 0, on_icon);
+            let clicked_again = count();
+            // Left on a file goes to its folder
+            focus(2);
+            key(VK_LEFT);
+            let parent = controls::focused(lv);
+            // a double click (or Enter) on a folder folds it rather than opening anything
+            notify(LVN_ITEMACTIVATE, 0, POINT { x: 0, y: 0 });
+            let activated = (count(), with_app(|a| a.detail.cell(Page::Files, 1, 0)));
+            // type-ahead by the names the rows show
+            controls::set_state(lv, None, false, false);
+            for c in "inf".chars() {
+                SendMessageW(lv, WM_CHAR, c as WPARAM, 0);
+            }
+            let typed = controls::focused(lv);
+            // a folder row stands for its files in the actions
+            controls::set_state(lv, None, true, false);
+            let acted = with_app(|a| a.detail.file_indexes(&controls::selected(lv)));
+            let relocatable = with_app(|a| a.detail.file_index(0));
+
+            // Tree View's box off: the plain list, without icons, the choice kept
+            send(check, BM_SETCHECK, BST_UNCHECKED as usize, 0);
+            let clicked_box = (IDC_FILES_TREE | ((BN_CLICKED as usize) << 16)) as WPARAM;
+            SendMessageW(hwnd, WM_COMMAND, clicked_box, check as LPARAM);
+            let flat = (
+                count(),
+                with_app(|a| (a.detail.files_tree(), a.prefs.get_bool(detail::FILES_TREE_KEY, true))),
+                send(lv, LVM_GETIMAGELIST, LVSIL_SMALL as usize, 0) == 0,
+                with_app(|a| a.detail.cell(Page::Files, 0, 0)),
+                controls::selected_count(lv),
+            );
+            let flat_label = label_left();
+            // the menu's Tree View: back to the tree, every folder open again
+            SendMessageW(hwnd, WM_COMMAND, cmd::FILES_TREE as WPARAM, 0);
+            let tree = (
+                count(),
+                checked(),
+                with_app(|a| a.prefs.get_bool(detail::FILES_TREE_KEY, false)),
+                send(lv, LVM_GETIMAGELIST, LVSIL_SMALL as usize, 0) != 0,
+            );
+            DestroyWindow(hwnd);
+
+            assert_eq!(start, (4, true, (0, true), (1, true), (0, true)));
+            assert_eq!((closed, opened), (2, 4));
+            assert_eq!((clicked, clicked_again), (2, 4));
+            assert_eq!(parent, Some(0));
+            assert_eq!(activated, (2, Some("info.nfo".to_owned())));
+            assert_eq!(typed, Some(1));
+            assert_eq!(acted, Some(vec![0, 1, 3]));
+            assert_eq!(relocatable, Some(None), "a folder is not one file");
+            assert_eq!(flat, (3, Some((false, false)), true, Some("Show/Season 1/e01.mkv".to_owned()), 0));
+            assert_eq!(tree, (4, true, Some(true), true));
+            // the plain list gives back the icon's room (2.2.1's look)
+            assert!(flat_label + 10 < tree_label, "flat {flat_label}, tree {tree_label}");
         }
     }
 
@@ -6255,17 +6576,57 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 0
             }
             (IDC_PIECE_LIST, NM_CUSTOMDRAW) => pieces_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW)),
-            // a double click or Enter on a file opens it, as in µTorrent and Explorer
+            // a double click or Enter on a file opens it, as in µTorrent and Explorer; on a
+            // folder of the tree it opens or closes the folder, as in Add New Torrent (D62)
             (i, LVN_ITEMACTIVATE) if i == IDC_PAGE + Page::Files.index() => {
                 let row = (*(nm as *const NMITEMACTIVATE)).iItem;
                 if row >= 0 {
-                    open_file(hwnd, row as usize, false);
+                    let row = row as usize;
+                    let folder =
+                        with_app(|a| a.detail.file_tree_row(row).is_some_and(|r| r.folder.is_some()));
+                    if folder == Some(true) {
+                        files_folder(row, None);
+                    } else {
+                        open_file(hwnd, row, false);
+                    }
                 }
                 0
             }
-            // type-ahead in the Files tab, over the rows the filter lets through (D50): the
-            // path as the row shows it, or the file's own name (the paths of a torrent with a
-            // folder all start with it)
+            // a click on a folder's icon opens or closes it
+            (i, NM_CLICK) if i == IDC_PAGE + Page::Files.index() => {
+                let ia = &*(nm as *const NMITEMACTIVATE);
+                let mut hit: LVHITTESTINFO = zeroed();
+                hit.pt = ia.ptAction;
+                let lv = (*nm).hwndFrom;
+                if send(lv, LVM_SUBITEMHITTEST, 0, &mut hit as *mut _ as LPARAM) >= 0
+                    && hit.iItem >= 0
+                    && hit.iSubItem == 0
+                    && hit.flags & LVHT_ONITEMICON != 0
+                {
+                    files_folder(hit.iItem as usize, None);
+                }
+                0
+            }
+            (i, LVN_KEYDOWN) if i == IDC_PAGE + Page::Files.index() => {
+                files_key((*nm).hwndFrom, (*(nm as *const NMLVKEYDOWN)).wVKey);
+                0
+            }
+            // type-ahead in the Files tab's tree: the names as the rows show them (D62)
+            (i, LVN_ODFINDITEMW)
+                if i == IDC_PAGE + Page::Files.index()
+                    && with_app(|a| a.detail.files_tree()) == Some(true) =>
+            {
+                with_app(|a| {
+                    let d = &a.detail;
+                    controls::answer_find_item_by(nm as LPARAM, d.rows(Page::Files), |row, text, whole| {
+                        d.file_tree_row(row).is_some_and(|r| controls::name_matches(r.name, text, whole))
+                    })
+                })
+                .unwrap_or(-1)
+            }
+            // and in the plain list, over the rows the filter lets through (D50): the path as
+            // the row shows it, or the file's own name (the paths of a torrent with a folder
+            // all start with it)
             (i, LVN_ODFINDITEMW) if i == IDC_PAGE + Page::Files.index() => with_app(|a| {
                 let d = &a.detail;
                 let files = d.files.as_deref().unwrap_or(&[]);
@@ -6297,6 +6658,22 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                     })
                     .flatten()
                     .unwrap_or(I_IMAGENONE);
+                }
+                // the tree's rows: indented by depth, with the shell's folder and file icons
+                // (D62), as Add New Torrent draws them
+                if page == Page::Files
+                    && di.item.iSubItem == 0
+                    && di.item.mask & (LVIF_INDENT | LVIF_IMAGE) != 0
+                {
+                    with_app(|a| {
+                        let Some(r) = a.detail.file_tree_row(di.item.iItem.max(0) as usize) else { return };
+                        if di.item.mask & LVIF_INDENT != 0 {
+                            di.item.iIndent = r.depth as i32;
+                        }
+                        if di.item.mask & LVIF_IMAGE != 0 {
+                            di.item.iImage = a.file_icons.row(r.folder, r.name);
+                        }
+                    });
                 }
                 if di.item.mask & LVIF_TEXT != 0 {
                     let text =

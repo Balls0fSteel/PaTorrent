@@ -144,10 +144,8 @@ struct State {
     tree: FileTree,
     setup: Setup,
     choice: Option<AddChoice>,
-    /// The shell's small icon index per lower-case extension, filled as rows are drawn.
-    icons: HashMap<String, i32>,
-    /// Closed and open folder.
-    folder_icons: (i32, i32),
+    /// The rows' folder and file icons.
+    icons: ShellIcons,
     checks: HIMAGELIST,
     /// The tooltip with the whole name and comment, when one of them shows "...".
     tip: HWND,
@@ -172,8 +170,7 @@ impl State {
             tree: FileTree::from_torrent(ti),
             setup,
             choice: None,
-            icons: HashMap::new(),
-            folder_icons: (-1, -1),
+            icons: ShellIcons::default(),
             checks: 0,
             tip: null_mut(),
             base: (0, 0),
@@ -427,13 +424,8 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         send(lv, LVM_SETCALLBACKMASK, LVIS_STATEIMAGEMASK as usize, 0);
         st.checks = check_images(lv);
         send(lv, LVM_SETIMAGELIST, LVSIL_STATE as usize, st.checks as LPARAM);
-        let (system, closed) = shell_icon("folder", FILE_ATTRIBUTE_DIRECTORY, 0);
-        let (_, open) = shell_icon("folder", FILE_ATTRIBUTE_DIRECTORY, SHGFI_OPENICON);
-        st.folder_icons = (closed, open);
-        if system != 0 {
-            // the shell's list, shared (LVS_SHAREIMAGELISTS): never destroyed here
-            send(lv, LVM_SETIMAGELIST, LVSIL_SMALL as usize, system as LPARAM);
-        }
+        st.icons = ShellIcons::load();
+        st.icons.set_on(lv, true);
         controls::set_count(lv, st.tree.len());
         fit_columns(lv);
         update_size(dlg, st);
@@ -585,6 +577,73 @@ unsafe fn tips(dlg: HWND, st: &mut State) {
             send(tip, TTM_ADDTOOLW, 0, &ti as *const _ as LPARAM);
         }
         st.tip = tip;
+    }
+}
+
+/// The shell's small icons for a folder tree's rows (this dialog's list and the main window's
+/// Files tab): closed and open folders, and one icon per file extension, looked up as rows are
+/// drawn. They index the shell's system image list, shared by every list that shows them
+/// (`LVS_SHAREIMAGELISTS`), so it is never destroyed.
+pub(crate) struct ShellIcons {
+    /// The system image list; 0 when the shell gave none.
+    list: usize,
+    /// Closed and open folder.
+    folders: (i32, i32),
+    /// The icon index per lower-case extension.
+    by_ext: HashMap<String, i32>,
+}
+
+impl Default for ShellIcons {
+    fn default() -> Self {
+        ShellIcons { list: 0, folders: (-1, -1), by_ext: HashMap::new() }
+    }
+}
+
+impl ShellIcons {
+    pub(crate) unsafe fn load() -> ShellIcons {
+        unsafe {
+            let (list, closed) = shell_icon("folder", FILE_ATTRIBUTE_DIRECTORY, 0);
+            let (_, open) = shell_icon("folder", FILE_ATTRIBUTE_DIRECTORY, SHGFI_OPENICON);
+            ShellIcons { list, folders: (closed, open), by_ext: HashMap::new() }
+        }
+    }
+
+    /// Gives report list view `lv` the icons (`on`) or takes them away (its rows then have no
+    /// room for one). The list must have `LVS_SHAREIMAGELISTS`.
+    pub(crate) unsafe fn set_on(&self, lv: HWND, on: bool) {
+        use windows_sys::Win32::UI::Controls::{LV_VIEW_DETAILS, LV_VIEW_LIST, LVM_SETVIEW};
+        use windows_sys::Win32::UI::WindowsAndMessaging::WM_SETREDRAW;
+        if self.list == 0 {
+            return;
+        }
+        unsafe {
+            if on {
+                send(lv, LVM_SETIMAGELIST, LVSIL_SMALL as usize, self.list as LPARAM);
+                return;
+            }
+            send(lv, LVM_SETIMAGELIST, LVSIL_SMALL as usize, 0);
+            // the list keeps the room the icons had until it lays its items out again, which a
+            // change of view makes it do
+            send(lv, WM_SETREDRAW, 0, 0);
+            send(lv, LVM_SETVIEW, LV_VIEW_LIST as usize, 0);
+            send(lv, LVM_SETVIEW, LV_VIEW_DETAILS as usize, 0);
+            send(lv, WM_SETREDRAW, 1, 0);
+        }
+    }
+
+    /// A tree row's icon: a folder open or closed (`folder` as a tree row's), or the
+    /// file's by the extension of `name`.
+    pub(crate) fn row(&mut self, folder: Option<bool>, name: &str) -> i32 {
+        match folder {
+            Some(true) => self.folders.1,
+            Some(false) => self.folders.0,
+            None => {
+                let ext = name.rsplit_once('.').map_or(String::new(), |(_, e)| e.to_lowercase());
+                *self.by_ext.entry(ext).or_insert_with_key(|ext| unsafe {
+                    shell_icon(&format!("file.{ext}"), FILE_ATTRIBUTE_NORMAL, 0).1
+                })
+            }
+        }
     }
 }
 
@@ -902,11 +961,7 @@ unsafe fn display(st: &mut State, it: &mut windows_sys::Win32::UI::Controls::LVI
             it.iIndent = depth as i32;
         }
         if it.mask & LVIF_IMAGE != 0 {
-            it.iImage = match folder {
-                Some(true) => st.folder_icons.1,
-                Some(false) => st.folder_icons.0,
-                None => file_icon(st, &file_name),
-            };
+            it.iImage = st.icons.row(folder, &file_name);
         }
         if it.mask & LVIF_STATE != 0 {
             let image = match check {
@@ -918,13 +973,6 @@ unsafe fn display(st: &mut State, it: &mut windows_sys::Win32::UI::Controls::LVI
             it.stateMask |= LVIS_STATEIMAGEMASK;
         }
     }
-}
-
-fn file_icon(st: &mut State, name: &str) -> i32 {
-    let ext = name.rsplit_once('.').map_or(String::new(), |(_, e)| e.to_lowercase());
-    *st.icons
-        .entry(ext)
-        .or_insert_with_key(|ext| unsafe { shell_icon(&format!("file.{ext}"), FILE_ATTRIBUTE_NORMAL, 0).1 })
 }
 
 /// Right-click on the files: priorities and check / uncheck for the selected rows.

@@ -1700,6 +1700,10 @@
   const tabSel = { trackers: new Set(), peers: new Set(), pieces: new Set(), files: new Set() };
   // the Files tab's filter box (D50): kept when the torrent changes, never stored
   let filesFilter = "";
+  // the Files tab shows the folder tree (D62; off: 2.2.1's plain list of paths), and the
+  // folders collapsed in it by path, for one torrent: kept across updates and priority changes
+  let filesTree = store.get("pa.filesTree", true) !== false;
+  const filesCollapsed = { id: null, paths: new Set() };
   const DOWN_COLOR = "#2aa52a";
   const UP_COLOR = "#d23c3c";
 
@@ -1806,6 +1810,7 @@
   // Trackers, Peers, Pieces, Files: a table with the frontend's columns, sortable by header
   // click (client-side; these lists are small), rows reconciled by key so nothing flickers.
   // `blocksCol` is a column drawn from the row's block letters (the Pieces list) instead of text.
+  // Files is the folder tree by default (D62), built here from the rows' paths on each update.
   function tableView(tab, id, blocksCol = -1) {
     const cols = (hello && hello.detail && hello.detail[tab]) || [];
     const keyOf = tab === "files" ? (r) => String(r.i) : (r) => r.c[0];
@@ -1834,6 +1839,17 @@
     const files = tab === "files";
     let root = el;
     let count = null;
+    let treeBtn = null;
+    let scroller = null;
+    let tree = null; // the Files tab's folder tree as last drawn; null in the plain list
+    let treeShown = null; // its filter's flags, null while not filtering
+    let anchorKey = null; // the selection's anchor row
+    let curKey = null; // the keyboard's row
+    const typed = { typed: "", typedAt: 0 }; // the type-ahead's letters
+    if (files && filesCollapsed.id !== id) {
+      filesCollapsed.id = id; // another torrent: every folder open again
+      filesCollapsed.paths.clear();
+    }
     if (files) {
       root = document.createElement("div");
       root.className = "files-tab";
@@ -1847,11 +1863,18 @@
       box.placeholder = T("FilesFilterCue");
       box.setAttribute("aria-label", T("FilesFilterCue"));
       box.value = filesFilter;
-      const list = document.createElement("div");
-      list.className = "files-list";
-      list.appendChild(el);
-      bar.append(count, box);
-      root.append(bar, list);
+      scroller = document.createElement("div");
+      scroller.className = "files-list";
+      scroller.appendChild(el);
+      // the Tree view toggle beside the box, also a checked item of the right-click menu
+      treeBtn = document.createElement("button");
+      treeBtn.type = "button";
+      treeBtn.className = "files-tree";
+      treeBtn.textContent = T("FilesTree");
+      treeBtn.title = T("FilesTreeTip");
+      treeBtn.addEventListener("click", () => setTree(!filesTree));
+      bar.append(count, box, treeBtn);
+      root.append(bar, scroller);
       box.addEventListener("input", () => {
         filesFilter = box.value;
         render();
@@ -1871,12 +1894,148 @@
           const sel = tabSel[tab];
           sel.clear();
           for (const r of tbody.children) if (!r.hidden) sel.add(r.dataset.key);
-          for (const r of tbody.children) r.classList.toggle("sel", sel.has(r.dataset.key));
-        } else return;
+          markSel();
+        } else if (ev.target !== root || ev.ctrlKey || ev.metaKey || ev.altKey || !listKey(ev)) return;
         ev.preventDefault();
         ev.stopPropagation();
       });
     }
+    const markSel = () => {
+      const sel = tabSel[tab];
+      for (const r of tbody.children) {
+        r.classList.toggle("sel", sel.has(r.dataset.key));
+        r.classList.toggle("cur", r.dataset.key === curKey);
+      }
+    };
+    const shownKeys = () => [...tbody.children].filter((r) => !r.hidden).map((r) => r.dataset.key);
+    /// The keyboard's row to `key`, selected (with `extend`, from the anchor).
+    const moveCur = (key, extend) => {
+      const sel = tabSel[tab];
+      curKey = key;
+      if (extend && anchorKey !== null) {
+        const keys = shownKeys();
+        const b = keys.indexOf(key);
+        const a = keys.includes(anchorKey) ? keys.indexOf(anchorKey) : b;
+        sel.clear();
+        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) sel.add(keys[i]);
+      } else {
+        sel.clear();
+        sel.add(key);
+        anchorKey = key;
+      }
+      markSel();
+      const tr = byKey.get(key);
+      if (tr) tr.scrollIntoView({ block: "nearest" });
+    };
+    const nodeOf = (key) => {
+      const n = tree && key !== null ? tree.byKey.get(key) : undefined;
+      return n === undefined ? null : tree.nodes[n];
+    };
+    /// A folder of the tree opened or closed; kept by its path while this torrent is shown.
+    const setExpanded = (node, open) => {
+      if (open) filesCollapsed.paths.delete(node.key);
+      else filesCollapsed.paths.add(node.key);
+      render();
+    };
+    /// The Files tab's keys in the list: arrows, Home, End, Left and Right in the tree (close,
+    /// open, to the parent, to the first child), letters type ahead. False when not one.
+    const listKey = (ev) => {
+      const keys = shownKeys();
+      if (!keys.length) return false;
+      const at = keys.indexOf(curKey);
+      const go = (i) => moveCur(keys[Math.max(0, Math.min(keys.length - 1, i))], ev.shiftKey);
+      switch (ev.key) {
+        case "ArrowDown":
+          go(at + 1);
+          break;
+        case "ArrowUp":
+          go(at < 0 ? 0 : at - 1);
+          break;
+        case "Home":
+          go(0);
+          break;
+        case "End":
+          go(keys.length - 1);
+          break;
+        case "ArrowLeft":
+        case "ArrowRight": {
+          const node = nodeOf(curKey);
+          if (!node || at < 0) return false; // the plain list: the table scrolls
+          const open = (ev.key === "ArrowRight") !== RTL;
+          if (node.dir && !treeShown && node.expanded !== open) setExpanded(node, open);
+          else if (!open && node.parent >= 0) moveCur(tree.nodes[node.parent].rk, false);
+          else if (open && node.dir) {
+            const first = node.children.find((c) => !treeShown || treeShown[c]);
+            if (first !== undefined) moveCur(tree.nodes[first].rk, false);
+          }
+          break;
+        }
+        default: {
+          if ([...ev.key].length !== 1 || ev.key === " ") return false;
+          const names = keys.map((k) => byKey.get(k)._name || "");
+          const i = typeAhead(typed, ev.key, names, at);
+          if (i >= 0) moveCur(keys[i], false);
+        }
+      }
+      return true;
+    };
+    /// The Files tab between the folder tree and the plain list; the rows are made again.
+    const setTree = (on) => {
+      filesTree = on;
+      store.set("pa.filesTree", on);
+      for (const tr of byKey.values()) tr.remove();
+      byKey.clear();
+      tabSel[tab].clear();
+      anchorKey = curKey = null;
+      render();
+    };
+    /// The rows as the Files tab's tree: names indented under their folders, folders with their
+    /// files' sums (size, done, %), their one priority or Mixed and no piece columns; siblings
+    /// sorted by the header's column, folders first.
+    const filesTreeOf = (rows) => {
+      const t = buildTree(
+        rows.map((r) => ({ path: r.c[0] || "", i: r.i, size: (r.k && r.k[1]) || 0, prio: r.prio, done: r.k ? r.k[2] : null, row: r })),
+        true
+      );
+      summarize(t);
+      t.byKey = new Map();
+      t.nodes.forEach((node, n) => {
+        if (node.dir) {
+          node.expanded = !filesCollapsed.paths.has(node.key);
+          node.rk = "d:" + node.key;
+          const known = node.done !== null;
+          const rank = node.wanted === 0 ? 0 : node.mixed || node.wanted < node.files ? 4 : prioLevel(node.prio);
+          node.c = [node.name, fmtSize(node.size), known ? fmtSize(node.done) : "", known ? percentText(node.done, node.size) : "", "", "", nodePrioText(node)];
+          node.k = [null, node.size, known ? node.done : null, known ? (node.size > 0 ? Math.floor((node.done * 1e6) / node.size) : 1e6) : null, null, null, rank];
+        } else {
+          node.rk = String(node.i);
+          node.c = node.row.c.slice();
+          node.c[0] = node.name;
+          node.k = node.row.k || [];
+        }
+        t.byKey.set(node.rk, n);
+      });
+      const [si, desc] = tabSort[tab];
+      const cmp = (a, b) => {
+        const x = t.nodes[a];
+        const y = t.nodes[b];
+        if (x.dir !== y.dir) return x.dir ? -1 : 1;
+        const r = cmpCells(x, y, si);
+        return desc ? -r : r;
+      };
+      t.roots.sort(cmp);
+      for (const node of t.nodes) if (node.dir) node.children.sort(cmp);
+      return t;
+    };
+    /// The file indexes of the selected rows, once each: a folder stands for its shown files.
+    const selectedFiles = () => {
+      const out = new Set();
+      for (const key of tabSel[tab]) {
+        if (!key.startsWith("d:")) out.add(Number(key));
+        else if (tree && tree.byKey.has(key)) for (const f of filesOf(tree, tree.byKey.get(key), [], treeShown)) out.add(f.i);
+      }
+      return [...out].sort((a, b) => a - b);
+    };
     const markSort = () => {
       const [si, desc] = tabSort[tab];
       for (const th of hr.children) {
@@ -1890,40 +2049,68 @@
       const [si, desc] = tabSort[tab];
       const out = rows.slice();
       out.sort((a, b) => {
-        const ka = a.k && a.k[si];
-        const kb = b.k && b.k[si];
-        let r;
-        if (typeof ka === "number" && typeof kb === "number") r = ka - kb;
-        else if (typeof ka === "number") r = 1; // numbers after blanks? no: blanks last
-        else if (typeof kb === "number") r = -1;
-        else r = (a.c[si] || "").localeCompare(b.c[si] || "", undefined, { numeric: true, sensitivity: "base" });
-        if (r === 0 && si !== 0) r = (a.c[0] || "").localeCompare(b.c[0] || "", undefined, { numeric: true });
+        const r = cmpCells(a, b, si);
         return desc ? -r : r;
       });
       return out;
     };
     const render = () => {
-      const list = sorted();
+      const treeMode = files && filesTree;
+      let list;
+      let total = rows.length;
+      let shown = 0;
+      if (treeMode) {
+        tree = filesTreeOf(rows);
+        const filter = treeFilter(tree, filesFilter);
+        treeShown = filter && filter.shown;
+        list = visibleRows(tree, treeShown).map((n) => tree.nodes[n]);
+        total = tree.byFile.length;
+        shown = filter ? filter.files : total;
+      } else {
+        tree = treeShown = null;
+        list = sorted();
+      }
+      if (treeBtn) {
+        treeBtn.classList.toggle("on", treeMode);
+        treeBtn.setAttribute("aria-pressed", String(treeMode));
+      }
       const keep = new Set();
       // the Files filter: every word of the box in the path, case-insensitive (FileFilter)
       const words = files ? filesFilter.toLowerCase().split(/\s+/).filter(Boolean) : [];
-      let shown = 0;
       list.forEach((r, i) => {
-        const key = keyOf(r);
+        const key = treeMode ? r.rk : keyOf(r);
         keep.add(key);
         let tr = byKey.get(key);
         if (!tr) {
           tr = document.createElement("tr");
           tr.dataset.key = key;
-          cols.forEach((c) => {
+          cols.forEach((c, j) => {
             const td = document.createElement("td");
             if (c.right) td.className = "r";
+            if (j === 0 && treeMode) {
+              td.className = "n";
+              const tg = document.createElement("span");
+              tg.className = "tg";
+              td.append(tg, document.createElement("span"));
+            }
             tr.appendChild(td);
           });
           byKey.set(key, tr);
         }
+        tr._name = treeMode ? r.name : r.c[0] || "";
+        if (treeMode) tr.classList.toggle("dir", r.dir);
         r.c.forEach((text, j) => {
           const td = tr.children[j];
+          if (j === 0 && treeMode && td) {
+            // the name under its folder's toggle, indented by depth; the path as the tip
+            setTextIf(td.firstChild, r.dir ? (treeShown || r.expanded ? "▾" : "▸") : "");
+            setTextIf(td.lastChild, text);
+            const pad = 6 + r.depth * 16 + "px";
+            if (td.style.paddingInlineStart !== pad) td.style.paddingInlineStart = pad;
+            const tip = r.dir ? r.key : r.row.c[0] || "";
+            if (td.title !== tip) td.title = tip;
+            return;
+          }
           if (j === blocksCol) {
             if (td && td.dataset.b !== r.b) {
               td.dataset.b = r.b || "";
@@ -1936,18 +2123,22 @@
             if (j === 0) td.title = text;
           }
         });
-        const path = (r.c[0] || "").toLowerCase();
-        tr.hidden = !words.every((w) => path.includes(w));
-        if (tr.hidden) tabSel[tab].delete(key); // the menu never acts on a file out of sight
-        else shown++;
+        if (!treeMode) {
+          const path = (r.c[0] || "").toLowerCase();
+          tr.hidden = !words.every((w) => path.includes(w));
+          if (tr.hidden) tabSel[tab].delete(key); // the menu never acts on a file out of sight
+          else shown++;
+        }
         tr.classList.toggle("sel", tabSel[tab].has(key));
+        tr.classList.toggle("cur", key === curKey);
         if (tbody.children[i] !== tr) tbody.insertBefore(tr, tbody.children[i] || null);
       });
       if (count) {
         count.hidden = !words.length;
         const n = (v) => v.toLocaleString("en-US");
-        setTextIf(count, words.length ? T("FilesFilterCount", { shown: n(shown), total: n(list.length) }) : "");
+        setTextIf(count, words.length ? T("FilesFilterCount", { shown: n(shown), total: n(total) }) : "");
       }
+      // gone, or in a closed folder: no longer selected, the menu never acts on it
       for (const [key, tr] of byKey) {
         if (!keep.has(key)) {
           tr.remove();
@@ -1965,48 +2156,53 @@
       markSort();
       render();
     });
-    let anchorKey = null;
+    if (files) {
+      // a folder's toggle (or a double click on its row) opens or closes it
+      const folderAt = (ev) => {
+        const tr = ev.target.closest("tr");
+        const node = tr && nodeOf(tr.dataset.key);
+        return node && node.dir ? node : null;
+      };
+      tbody.addEventListener("click", (ev) => {
+        const node = ev.target.classList.contains("tg") ? folderAt(ev) : null;
+        if (node && !treeShown) setExpanded(node, !node.expanded);
+      });
+      tbody.addEventListener("dblclick", (ev) => {
+        const node = folderAt(ev);
+        if (node && !treeShown && !ev.target.classList.contains("tg")) setExpanded(node, !node.expanded);
+      });
+    }
     tbody.addEventListener("pointerdown", (ev) => {
       if (ev.button !== 0 && ev.button !== 2) return;
       const tr = ev.target.closest("tr");
       if (!tr) return;
+      if (ev.button === 0 && ev.target.classList.contains("tg") && tr.classList.contains("dir")) return; // the toggle
       const key = tr.dataset.key;
       const sel = tabSel[tab];
-      if (ev.button === 2) {
-        if (!sel.has(key)) {
-          sel.clear();
-          sel.add(key);
-          anchorKey = key;
-        }
-      } else if (ev.ctrlKey || ev.metaKey) {
+      if (ev.button === 2 && sel.has(key)) curKey = key;
+      else if (ev.button === 0 && (ev.ctrlKey || ev.metaKey)) {
         if (sel.has(key)) sel.delete(key);
         else sel.add(key);
-        anchorKey = key;
-      } else if (ev.shiftKey && anchorKey !== null) {
-        const keys = [...tbody.children].filter((r) => !r.hidden).map((r) => r.dataset.key);
-        const b = keys.indexOf(key);
-        const a = keys.includes(anchorKey) ? keys.indexOf(anchorKey) : b; // the anchor filtered out
-        sel.clear();
-        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) sel.add(keys[i]);
-      } else {
-        sel.clear();
-        sel.add(key);
-        anchorKey = key;
-      }
-      for (const r of tbody.children) r.classList.toggle("sel", sel.has(r.dataset.key));
+        anchorKey = curKey = key;
+      } else return moveCur(key, ev.button === 0 && ev.shiftKey);
+      markSel();
     });
-    if (tab === "files") {
-      tbody.addEventListener("contextmenu", (ev) => {
+    if (files) {
+      // the priorities for the selected files (a folder: its shown files), then Tree View
+      scroller.addEventListener("contextmenu", (ev) => {
         ev.preventDefault();
-        const sel = tabSel[tab];
-        if (!sel.size) return;
+        const idx = selectedFiles();
         const prio = (p) => () => {
           const priorities = {};
-          for (const i of sel) priorities[i] = p;
+          for (const i of idx) priorities[i] = p;
           pa("torrents/files", { id, priorities }).catch(() => {});
         };
         openMenu(
-          PRIORITIES.map(([key, p]) => ({ label: T(key), run: prio(p) })),
+          [
+            ...PRIORITIES.map(([key, p]) => ({ label: T(key), dis: !idx.length, run: prio(p) })),
+            "-",
+            { label: T("MenuFilesTree"), hint: T("FilesTreeTip"), chk: filesTree, run: () => setTree(!filesTree) },
+          ],
           ev.clientX,
           ev.clientY
         );
@@ -2023,6 +2219,24 @@
         render();
       },
     };
+  }
+
+  /// The detail tables' order of two rows by column `si`: numbers by value (blanks first), text
+  /// naturally, ties by the first column.
+  function cmpCells(a, b, si) {
+    const ka = a.k && a.k[si];
+    const kb = b.k && b.k[si];
+    let r;
+    if (typeof ka === "number" && typeof kb === "number") r = ka - kb;
+    else if (typeof ka === "number") r = 1; // numbers after blanks? no: blanks last
+    else if (typeof kb === "number") r = -1;
+    else r = (a.c[si] || "").localeCompare(b.c[si] || "", undefined, { numeric: true, sensitivity: "base" });
+    if (r === 0 && si !== 0) r = (a.c[0] || "").localeCompare(b.c[0] || "", undefined, { numeric: true });
+    return r;
+  }
+  /// frontend::detail's "99.9 %": rounded down, so only a complete file reads 100.
+  function percentText(done, size) {
+    return (size > 0 ? Math.floor((done / size) * 1000) / 10 : 100).toFixed(1) + " %";
   }
 
   // A piece's blocks as one bar: blue on disk, green being written, orange requested, grey
@@ -2463,35 +2677,65 @@
     }
   });
 
-  // the file tree: folders before the files of their parent, as the torrent lists them
-  function buildTree(files) {
+  // ---- the file tree (frontend::add::FileTree): the Add dialog's and the Files tab's -------
+  /// Folders before the files of their parent, in the order given. `files` are {path, i, size};
+  /// with `engine` (the Files tab) also {prio, done, row}: the engine's paths, split at either
+  /// separator, whose torrent folder is left out when every file sits below it (the filter
+  /// still matches it, as the plain list's does), with the files' priorities and progress.
+  function buildTree(files, engine = false) {
     const nodes = [];
     const roots = [];
     const byFile = [];
-    const dirs = new Map(); // parent index + "/" + name -> node index
+    const dirs = new Map(); // a folder's path below the torrent's folder -> node index
+    const split = (p) => p.split(engine ? /[\\/]/ : "/").filter((x) => x);
+    let root = null; // the torrent's own folder, left out
+    if (engine) {
+      for (const f of files) {
+        const parts = split(f.path);
+        if (parts.length < 2 || (root !== null && parts[0] !== root)) {
+          root = null;
+          break;
+        }
+        root = parts[0];
+      }
+    }
     for (const f of files) {
-      const parts = f.path.split("/").filter((x) => x);
+      const parts = split(f.path);
+      if (root !== null && parts.length > 1 && parts[0] === root) parts.shift();
       let parent = -1;
       for (let d = 0; d < parts.length - 1; d++) {
-        const key = parent + "/" + parts[d];
+        const key = parts.slice(0, d + 1).join("/");
         let n = dirs.get(key);
         if (n === undefined) {
           n = nodes.length;
-          nodes.push({ name: parts[d], depth: d, parent, dir: true, children: [], expanded: true });
+          nodes.push({ name: parts[d], key, depth: d, parent, dir: true, children: [], expanded: true });
           (parent < 0 ? roots : nodes[parent].children).push(n);
           dirs.set(key, n);
         }
         parent = n;
       }
       const n = nodes.length;
-      const lp = (parts.join("/") || f.path).toLowerCase();
-      nodes.push({ name: parts[parts.length - 1] || f.path, depth: parts.length - 1, parent, dir: false, i: f.i, size: f.size, wanted: true, prio: 4, lp });
+      const lp = (engine ? f.path : parts.join("/") || f.path).toLowerCase();
+      const node = { name: parts[parts.length - 1] || f.path, depth: parts.length - 1, parent, dir: false, i: f.i, size: f.size, wanted: true, prio: 4, lp };
+      if (engine) {
+        node.wanted = f.prio !== 0;
+        node.prio = f.prio;
+        node.done = f.done;
+        node.row = f.row;
+      }
+      nodes.push(node);
       (parent < 0 ? roots : nodes[parent].children).push(n);
       byFile.push(n);
     }
-    return { nodes, roots, byFile };
+    return { nodes, roots, byFile, dirs };
   }
-  /// Folder summaries: files, wanted, size, the one priority of the wanted files (or null).
+  /// µTorrent's levels of an engine priority (native.rs priority_rank): Don't Download 0, Low
+  /// 1, Normal 2, High 3.
+  function prioLevel(p) {
+    return p === 0 ? 0 : p <= 3 ? 1 : p === 4 ? 2 : 3;
+  }
+  /// Folder summaries: files, wanted, size, done (null while any file's is unknown), the one
+  /// priority of the wanted files (or null); levels that read alike are not mixed.
   function summarize(tree) {
     const { nodes } = tree;
     for (let n = nodes.length - 1; n >= 0; n--) {
@@ -2500,6 +2744,8 @@
         let files = 0;
         let wanted = 0;
         let size = 0;
+        let done = 0;
+        let known = true;
         let prio = null;
         let mixed = false;
         for (const c of node.children) {
@@ -2507,21 +2753,29 @@
           files += ch.dir ? ch.files : 1;
           const w = ch.dir ? ch.wanted : ch.wanted ? 1 : 0;
           wanted += w;
-          size += ch.dir ? ch.size : ch.size;
+          size += ch.size;
+          if (ch.done === undefined || ch.done === null) known = false;
+          else done += ch.done;
           if (w > 0) {
-            const p = ch.dir ? ch.prio : ch.prio;
             if (ch.dir && ch.mixed) mixed = true;
-            else if (prio === null) prio = p;
-            else if (prio !== p) mixed = true;
+            else if (prio === null) prio = ch.prio;
+            else if (prioLevel(prio) !== prioLevel(ch.prio)) mixed = true;
           }
         }
         node.files = files;
         node.wanted = wanted;
         node.size = size;
+        node.done = known ? done : null;
         node.prio = prio;
         node.mixed = mixed;
       }
     }
+  }
+  /// A row's priority: a file's, or a folder's one priority, Don't Download or Mixed.
+  function nodePrioText(node) {
+    if (!node.dir) return priorityText(node.wanted ? node.prio : 0);
+    if (node.wanted === 0) return T("PrioDontDownload");
+    return node.mixed || node.wanted < node.files ? T("AddMixed") : priorityText(node.prio);
   }
   /// With `shown` (the filter's flags), shown nodes only.
   function filesOf(tree, n, out, shown) {
@@ -2542,9 +2796,9 @@
     for (const r of tree.roots) walk(r);
     return rows;
   }
-  /// The Add dialog's filter (FileFilter's rule): null, or {shown: flags of the matching files
-  /// and their folders, files: how many match}.
-  function addFilterShown(tree, text) {
+  /// The tree's filter (FileFilter's rule, the Add dialog's and the Files tab's): null, or
+  /// {shown: flags of the matching files and their folders, files: how many match}.
+  function treeFilter(tree, text) {
     const words = text.toLowerCase().split(/\s+/).filter(Boolean);
     if (!words.length) return null;
     const { nodes } = tree;
@@ -2667,7 +2921,7 @@
       tds.className = "r";
       tds.textContent = fmtSize(node.size);
       const tdp = document.createElement("td");
-      tdp.textContent = node.dir ? (node.wanted === 0 ? T("PrioDontDownload") : node.mixed || node.wanted < node.files ? T("AddMixed") : priorityText(node.prio)) : priorityText(node.wanted ? node.prio : 0);
+      tdp.textContent = nodePrioText(node);
       tr.append(tdc, tdn, tds, tdp);
       tbody.appendChild(tr);
     }
@@ -2687,7 +2941,7 @@
   function setAddFilter(text) {
     const st = addState;
     if (!st) return;
-    st.filter = addFilterShown(st.tree, text);
+    st.filter = treeFilter(st.tree, text);
     st.sel = new Set();
     st.anchor = -1;
     st.cur = -1;
@@ -2713,8 +2967,9 @@
     if (tr) tr.scrollIntoView({ block: "nearest" });
   }
   /// Type-ahead, as frontend::typeahead: a second between letters; one letter again cycles.
-  function addTypeAhead(ch) {
-    const st = addState;
+  /// `st` keeps {typed, typedAt}; `names` are the rows' names, `at` the current row (or -1).
+  /// The row to go to, or -1.
+  function typeAhead(st, ch, names, at) {
     const now = Date.now();
     if (now - st.typedAt > 1000) st.typed = "";
     st.typedAt = now;
@@ -2722,18 +2977,20 @@
     const typed = [...st.typed];
     const same = typed.every((c) => c === typed[0]);
     const prefix = same ? typed[0] : st.typed;
-    const rows = visibleRows(st.tree, st.filter && st.filter.shown);
-    if (!rows.length) return;
-    const at = rows.indexOf(st.cur);
+    if (!names.length) return -1;
     let from = same ? at + 1 : Math.max(at, 0);
-    if (from >= rows.length) from = 0;
-    for (let k = 0; k < rows.length; k++) {
-      const n = rows[(from + k) % rows.length];
-      if (st.tree.nodes[n].name.toLowerCase().startsWith(prefix)) {
-        moveAddCursor(n, false);
-        return;
-      }
+    if (from >= names.length) from = 0;
+    for (let k = 0; k < names.length; k++) {
+      const i = (from + k) % names.length;
+      if (names[i].toLowerCase().startsWith(prefix)) return i;
     }
+    return -1;
+  }
+  function addTypeAhead(ch) {
+    const st = addState;
+    const rows = visibleRows(st.tree, st.filter && st.filter.shown);
+    const i = typeAhead(st, ch, rows.map((n) => st.tree.nodes[n].name), rows.indexOf(st.cur));
+    if (i >= 0) moveAddCursor(rows[i], false);
   }
   function updateAddSize() {
     const { tree, info } = addState;

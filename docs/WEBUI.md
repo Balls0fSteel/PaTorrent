@@ -168,7 +168,12 @@ right).
 General: `bars` (Downloaded, Availability: label, text, fill in thousandths) and `groups`
 (Transfer, General: `[label, value]` pairs). Trackers / Peers / Files: `rows` of
 `{"c":[cells],"k":[sort keys]}` (a number per numeric column, null to sort by text), Files
-rows also with `i` (the engine's file index), `p` (progress in thousandths) and `prio`.
+rows also with `i` (the engine's file index), `p` (progress in thousandths) and `prio`. The
+page shows them as a folder tree by default (D62; the Tree view toggle beside the filter box
+and the menu's Tree View give the plain list back, kept as `pa.filesTree` in localStorage):
+built from the paths with the Add dialog's code (the torrent's own folder left out, still
+matched by the filter), folders with their files' sums, one priority or Mixed; siblings sort
+by the header's column, folders first; collapsed folders are kept by path for the torrent.
 Pieces: `n`, `have`, `rle` (alternating run lengths, a run of missing pieces first),
 `downloading` (the partial pieces' indices, for the bar) and `rows` for the list under the bar,
 one per partial piece in the table format above plus `b`, its blocks as one letter each (`f`

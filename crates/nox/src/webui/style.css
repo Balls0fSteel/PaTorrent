@@ -327,6 +327,13 @@ body.drag-size { cursor: col-resize; user-select: none; }
 .files-bar span { color: var(--muted); white-space: nowrap; }
 .files-bar input { width: 14em; max-width: 60%; background: var(--bg); }
 .files-list { flex: 1 1 0; min-height: 0; overflow: auto; }
+/* the Tree view toggle (D62) and the tree's names: indented, a folder's toggle before them */
+.files-bar .files-tree { flex: none; white-space: nowrap; }
+.files-bar .files-tree.on { background: var(--sel); color: var(--sel-fg); border-color: var(--sel); }
+.files-tab td.n { overflow: hidden; text-overflow: ellipsis; }
+.files-tab td.n .tg { display: inline-block; width: 14px; color: var(--muted); cursor: pointer; }
+.files-tab tr.sel td.n .tg { color: inherit; }
+.files-tab:focus tr.cur td { box-shadow: inset 0 1px 0 var(--focus), inset 0 -1px 0 var(--focus); }
 
 /* Pieces, Speed */
 .pieces { padding: 6px 8px; }
@@ -868,6 +875,11 @@ div.pg { border: 0; padding: 0 8px; }
   #st-dht { display: none; }
   .gen .pairs { grid-template-columns: minmax(0, 1fr); }
   .gen .pair { grid-template-columns: 135px minmax(0, 1fr); }
+  /* the Files bar: the box takes the room left, finger-sized with the Tree view toggle */
+  .files-bar { padding: 4px 8px; }
+  .files-bar input { flex: 1 1 auto; width: auto; min-width: 6em; max-width: none; min-height: 34px; }
+  .files-bar .files-tree { min-height: 34px; padding: 4px 10px; }
+  .files-tab td.n .tg { width: 22px; text-align: center; }
 
   /* the dialogs take the whole screen */
   #add, #prefs { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 10px; }

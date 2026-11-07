@@ -970,8 +970,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   password and Cancel seen in a browser). Open: an install with the real Jackett from the Web
   UI (nox on Windows and Linux) and from a hosted Web UI; the shipped systemd units set
   `MemoryDenyWriteExecute=yes`, which likely stops Jackett (.NET): try it, then decide whether
-  the units drop it or the docs keep the override. The Web UI size budget of 236 KB (was 220)
-  is confirmed by the owner. Screenshots of the new Win32 button row
+  the units drop it or the docs keep the override. The Web UI size budget is 500 KB (owner, 2026-11-07, for the Files tree; browsers cache the files).
+  Screenshots of the new Win32 button row
   (four 84-DLU buttons, long translations may crowd them) and the GTK window.
 
 ## Network binding for VPNs (D54; built 2026-11-04, 1.1.58)

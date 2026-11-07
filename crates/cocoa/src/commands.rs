@@ -94,6 +94,9 @@ pub enum Command {
     FilePriority(u16),
     /// Files: Relocate.
     FileRelocate,
+    /// Files: the folder tree or the plain list (D62: the check box beside the filter, Tree
+    /// View in the menu).
+    FilesTree,
     // slice C
     /// The status bar's update notice: opens the release page, the notice goes away.
     UpdateNotice,
@@ -132,13 +135,14 @@ pub enum Command {
 }
 
 /// The Files tab's commands (slice D), apart from [`ALL`], whose menus they are not in.
-pub const FILES: [Command; 6] = [
+pub const FILES: [Command; 7] = [
     Command::FileFilter,
     Command::FileOpen,
     Command::FileOpenFolder,
     Command::FileByOrder,
     Command::FileRelocate,
     Command::FilePriority(0),
+    Command::FilesTree,
 ];
 
 /// Every command: those without a value, then those with one (at index 0).
@@ -276,6 +280,8 @@ impl Command {
             FileByOrder => (56, 0),
             FilePriority(i) => (57, i),
             FileRelocate => (58, 0),
+            // the Files tab's tree (D62; kind 64: 59-63 are slices F, E and G's)
+            FilesTree => (64, 0),
             // slice C (kinds from 100, apart from the other slices' additions)
             UpdateNotice => (100, 0),
             NetworkStatus => (101, 0),
@@ -361,6 +367,7 @@ impl Command {
             56 => plain(FileByOrder),
             57 => Some(FilePriority(v)),
             58 => plain(FileRelocate),
+            64 => plain(FilesTree),
             // slice C
             100 => plain(UpdateNotice),
             101 => plain(NetworkStatus),
@@ -445,7 +452,7 @@ mod tests {
         assert_eq!(Command::from_tag(0), None);
         assert_eq!(Command::from_tag(-1), None);
         assert_eq!(Command::from_tag(Command::Quit.tag() + 1), None, "a plain command takes no value");
-        assert_eq!(Command::from_tag(64 << SHIFT), None);
+        assert_eq!(Command::from_tag(65 << SHIFT), None);
     }
 
     #[test]

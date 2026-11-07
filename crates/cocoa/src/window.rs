@@ -548,6 +548,7 @@ impl Ui {
                 }
             }),
             tab,
+            files_tree: crate::app::peek(|c| c.detail().files_tree()).unwrap_or(true),
             // a full-screen frame is not the window's own
             frame: (!full_screen).then(|| self.window.stringWithSavedFrame().to_string()),
             toolbar_items: (items != default).then_some(items),

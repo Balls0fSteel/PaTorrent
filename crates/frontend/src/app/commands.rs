@@ -325,15 +325,39 @@ impl Core {
         Some((PathBuf::from(&st.save_path), self.detail.file_path(row, &st.save_path)?))
     }
 
+    /// The Files tab's tree node `node` ([`crate::add::FileTree::children`]; a view that keeps
+    /// its own expansion, as macOS's outline): the torrent's save path and the file's or
+    /// folder's path (Open, Open Containing Folder, Relocate). `None` in a remote window, in
+    /// the plain list and for a node the filter hides.
+    pub fn file_node_path(&self, node: usize) -> Option<(PathBuf, PathBuf)> {
+        if self.is_remote() {
+            return None;
+        }
+        let st = self.list.get(self.detail.id?)?;
+        let tree = self.detail.file_tree()?;
+        tree.node(node)?;
+        let path = crate::detail::file_path(&st.save_path, &tree.node_path(node))?;
+        Some((PathBuf::from(&st.save_path), path))
+    }
+
     /// The Files tab's priorities for `rows` (`None`: Prioritize by File Order, which takes
     /// the whole torrent while the filter hides some).
     pub fn set_file_priority(&mut self, rows: &[usize], prio: Option<DownloadPriority>) {
+        let files = self.detail.file_indexes(rows);
+        self.set_file_priority_files(&files, prio);
+    }
+
+    /// [`Core::set_file_priority`] of torrent files (indices into its file list): what a view
+    /// keeping its own rows gives, as the files under its selected tree nodes
+    /// ([`crate::add::FileTree::files_under_nodes`]). Prioritize by File Order (`None`) takes
+    /// the whole torrent while the filter hides some, whatever `files` holds.
+    pub fn set_file_priority_files(&mut self, files: &[u32], prio: Option<DownloadPriority>) {
         let Some(id) = self.detail.id else { return };
         let t = self.handle.torrent(id);
         let files: Vec<u32> = if prio.is_none() && self.detail.file_filter.is_on() {
             self.detail.all_files()
         } else {
-            self.detail.file_indexes(rows)
+            files.to_vec()
         };
         let set = match prio {
             Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
@@ -353,9 +377,26 @@ impl Core {
         if self.is_remote() {
             return;
         }
-        let Some(id) = self.detail.id else { return };
         let Some(file) = self.detail.file_index(row) else { return };
-        if self.file_path(row).is_some_and(|(_, p)| p == to) {
+        let now = self.file_path(row).map(|(_, p)| p);
+        self.relocate(file, now, to);
+    }
+
+    /// [`Core::relocate_file`] for tree node `node` ([`Core::file_node_path`]); nothing for a
+    /// folder.
+    pub fn relocate_file_node(&mut self, node: usize, to: &Path) {
+        if self.is_remote() {
+            return;
+        }
+        let Some(file) = self.detail.file_tree().and_then(|t| t.node(node)?.file) else { return };
+        let now = self.file_node_path(node).map(|(_, p)| p);
+        self.relocate(file as u32, now, to);
+    }
+
+    /// Moves torrent file `file` (now at `now`) to `to`, then reads the file list back.
+    fn relocate(&mut self, file: u32, now: Option<PathBuf>, to: &Path) {
+        let Some(id) = self.detail.id else { return };
+        if now.is_some_and(|p| p == to) {
             return;
         }
         self.handle.torrent(id).rename_file(file, to.to_string_lossy().into_owned());

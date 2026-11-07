@@ -9,7 +9,7 @@
 //! - [`refresh`] redraws the tab on screen (`app::apply` after `Events::detail`, and after a
 //!   selection change).
 //! - [`find`]: Edit > Find in the Files tab goes to its filter.
-//! - [`run`] and [`state`]: the Files tab's commands (its filter and menu).
+//! - [`run`] and [`state`]: the Files tab's commands (its filter, its tree toggle and menu).
 //!
 //! Every read of `Core` is a shared borrow ([`crate::app::peek`]) dropped before AppKit is
 //! called; changes go through `with_core` and `app::apply`.
@@ -155,5 +155,7 @@ pub fn state(cmd: Command) -> Option<(bool, Option<bool>)> {
     if !crate::commands::FILES.iter().any(|c| std::mem::discriminant(c) == std::mem::discriminant(&cmd)) {
         return None;
     }
-    Some((tabs().is_some_and(|t| t.files.state(cmd)), None))
+    // Tree View carries a check mark while the tab shows the folder tree
+    let checked = (cmd == Command::FilesTree).then(|| peek(|c| c.detail().files_tree()).unwrap_or(true));
+    Some((tabs().is_some_and(|t| t.files.state(cmd)), checked))
 }

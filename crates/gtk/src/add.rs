@@ -16,7 +16,6 @@
 //! with them (type-ahead).
 
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::Instant;
@@ -70,8 +69,6 @@ struct Dialog {
     count: gtk::Label,
     /// The letters typed into the list.
     typeahead: RefCell<TypeAhead>,
-    /// The theme's icon per lower-case extension.
-    icons: RefCell<HashMap<String, gio::Icon>>,
     done: RefCell<Option<Done>>,
 }
 
@@ -179,7 +176,6 @@ pub fn show(
         size,
         count,
         typeahead: RefCell::default(),
-        icons: RefCell::default(),
         done: RefCell::new(Some(Box::new(done))),
     });
     let menu = files_menu();
@@ -577,29 +573,13 @@ impl Dialog {
                 });
                 c.check.set_inconsistent(row.check == Check::Mixed);
                 c.check.set_active(row.check == Check::On);
-                c.icon.set_from_gicon(&self.icon(row.name, row.folder));
+                c.icon.set_from_gicon(&crate::icons::file_icon(row.name, row.folder));
                 set_text(&c.label, row.name);
             }
             Widgets::Size(l) => set_text(l, &fmt::size(row.size)),
             Widgets::Priority(l) => set_text(l, row.priority.map_or(tr!(AddMixed), priority_text)),
         }
         self.drawing.set(false);
-    }
-
-    /// The theme's icon for a folder or a file name.
-    fn icon(&self, name: &str, folder: Option<bool>) -> gio::Icon {
-        if let Some(open) = folder {
-            return gio::ThemedIcon::new(if open { "folder-open" } else { "folder" }).upcast();
-        }
-        let ext = name.rsplit_once('.').map_or(String::new(), |(_, e)| e.to_lowercase());
-        self.icons
-            .borrow_mut()
-            .entry(ext)
-            .or_insert_with_key(|ext| {
-                let (kind, _) = gio::content_type_guess(Some(format!("file.{ext}")), None);
-                gio::content_type_get_icon(&kind)
-            })
-            .clone()
     }
 
     /// "Size: 1.20 GB of 3.40 GB selected (disk space: 120 GB free)".
